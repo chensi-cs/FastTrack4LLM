@@ -1,4 +1,4 @@
-./checkpoints
-./data
-./logs
-./saved_models
+/checkpoints
+/data
+/logs
+/saved_models
