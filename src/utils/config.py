@@ -7,6 +7,9 @@ class Config:
         self.num_epochs = 10
         self.learning_rate = 0.001
         self.n_head = 8
+        self.hidden_dim = 2024
+        self.num_layers = 6
+        self.dropout = 0.1
         # self.num_workers = 4
         self.data_path = 'data.csv'
         self.validation_path = 'validation.csv'

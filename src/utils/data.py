@@ -28,31 +28,49 @@ class CustomDataset(Dataset):
         zh_sentence = item['zh']
         en_tokens = self.tokenizer.encode(en_sentence)
         zh_tokens = self.tokenizer.encode(zh_sentence)
-        input_ids = en_tokens.ids
-        attention_mask = en_tokens.attention_mask
+        encoder_input_ids = en_tokens.ids
 
-        labels = zh_tokens.ids
-        if len(input_ids) > self.max_length:
-            input_ids = input_ids[:self.max_length]
-            attention_mask = attention_mask[:self.max_length]
-        else:
-            padding_length = self.max_length - len(input_ids)
-            input_ids += [2] * padding_length
-            attention_mask += [0] * padding_length
-
-        if len(labels) > self.max_length:
-            labels = labels[:self.max_length]
-        else:
-            padding_length = self.max_length - len(labels)
-            labels += [2] * padding_length
         
-        input_ids = torch.tensor(input_ids, dtype=torch.long)
-        attention_mask = torch.tensor(attention_mask, dtype=torch.long)
-        labels = torch.tensor(labels, dtype=torch.long)
+        if len(encoder_input_ids) > self.max_length:
+            encoder_input_ids = encoder_input_ids[:self.max_length]
+        else:
+            padding_length = self.max_length - len(encoder_input_ids)
+            encoder_input_ids += [2] * padding_length
+
+        decoder_input_ids = [0] + zh_tokens.ids  # <sos> id 为 0
+
+        # 标签添加 <eos> 标记
+        decoder_labels = zh_tokens.ids  # <eos> id 为 1
+
+        if len(decoder_input_ids) > self.max_length:
+            decoder_input_ids = decoder_input_ids[:self.max_length]
+        else:
+            padding_length = self.max_length - len(decoder_input_ids)
+            decoder_input_ids += [2] * padding_length  # <padding> id 为 2
+
+        if len(decoder_labels) > self.max_length:
+            decoder_labels = decoder_labels[:self.max_length-1]
+            decoder_labels += [1]
+        else:
+            padding_length = self.max_length - len(decoder_labels)-1
+            decoder_labels += [2] * padding_length  # <padding> id 为 2
+            decoder_labels += [1]
+
+
+
+        if len(decoder_labels) > self.max_length:
+            decoder_labels = decoder_labels[:self.max_length]
+        else:
+            padding_length = self.max_length - len(decoder_labels)
+            decoder_labels += [2] * padding_length
+        
+        encoder_input_ids = torch.tensor(encoder_input_ids, dtype=torch.long)
+        decoder_input_ids = torch.tensor(decoder_input_ids, dtype=torch.long)
+        decoder_labels = torch.tensor(decoder_labels, dtype=torch.long)
         return {
-            'input_ids': input_ids,
-            'attention_mask': attention_mask,
-            'labels': labels
+            'encoder_input_ids': encoder_input_ids,
+            'decoder_input_ids': decoder_input_ids,
+            'decoder_labels': decoder_labels
         }
 
 

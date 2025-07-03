@@ -18,7 +18,7 @@ class MultiheadAttention(nn.Module):
         self,
         embed_dim,
         num_heads,
-        dropout=0.0,
+        dropout=0.1,
         qdim=None,
         kdim=None,
         vdim=None,
@@ -123,15 +123,15 @@ class PositionalEncoding(nn.Module):
         )->None:
         super().__init__()
         pe=torch.zeros(max_len,d_model)
-        print("pe shape:",pe.shape)
+        # print("pe shape:",pe.shape)
         position=torch.arange(0,max_len).unsqueeze(1).float()
-        print("position shape:",position.shape)
+        # print("position shape:",position.shape)
         div_term=torch.exp(torch.arange(0,d_model,2).float()*(-np.log(1000.0)/d_model))
-        print("div_term shape:",div_term.shape)
+        # print("div_term shape:",div_term.shape)
         pe[:,0::2]=torch.sin(position*div_term)
         pe[:,1::2]=torch.cos(position*div_term)
         pe.unsqueeze(0) #[1, max_len, d_model]
-        print("pe shape:",pe.shape)
+        # print("pe shape:",pe.shape)
         pe=pe.unsqueeze(0)  # [1, max_len, d_model]
         self.register_buffer('pe', pe)  # 注册为buffer，不会被梯度更新,'pe' 是这个张量的名称
 
@@ -149,7 +149,7 @@ class TransformerModel(nn.Module):
         nhead: the number of heads in the multiheadattention models(default=8)
         num_encoder_layers: the number of sub-encoder-layers in the encoder(default=6)
         num_decoder_layers: the number of sub-decoder-layers in the decoder(default=6)
-        dim_feedforward: the dimension of the feedforward network(default=2048)
+        hidden_dim: the dimension of the feedforward network(default=2048)
         dropout: the dropout value(default=0.1)
         activation: the activation function of encoder/decoder intermediate layer, relu or gelu. default=relu
     """
@@ -159,7 +159,7 @@ class TransformerModel(nn.Module):
         n_head: int = 8,
         num_encoder_layers: int =6,
         num_decoder_layers: int =6,
-        dim_feedforward: int = 2048,
+        hidden_dim: int = 2048,
         dropout: float = 0.1,
         activation: str = "relu",
         vocab_size: int = 10000,
@@ -168,13 +168,13 @@ class TransformerModel(nn.Module):
 
         self.position_embedding = PositionalEncoding(d_model)
         self.token_embedding = nn.Embedding(vocab_size, d_model)
-        print("position_embedding shape:",self.position_embedding.pe.shape)
+        # print("position_embedding shape:",self.position_embedding.pe.shape)
 
         # create encoder
         encoder_layer = TransformerEncoderLayer(
             d_model=d_model,
             n_head=n_head,
-            hidden_dim=dim_feedforward,
+            hidden_dim=hidden_dim,
             dropout=dropout,
             activation=activation
         )
@@ -212,23 +212,23 @@ class TransformerModel(nn.Module):
             src: the sequence to the encoder (required).
             tgt: the sequence to the decoder (required).
         """
-        print("src shape:",src.shape)
-        print("tgt shape:",tgt.shape)
+        # # print("src shape:",src.shape)
+        # # print("tgt shape:",tgt.shape)
 
         src_token_emb = self.token_embedding(src)
-        print("src_token_emb shape:",src_token_emb.shape)
+        # print("src_token_emb shape:",src_token_emb.shape)
         src_position_emb = self.position_embedding(src)
-        print("src_position_emb shape:",src_position_emb.shape)
+        # print("src_position_emb shape:",src_position_emb.shape)
         src_embedding = src_token_emb + src_position_emb
-        print("src_embedding shape:",src_embedding.shape)
+        # print("src_embedding shape:",src_embedding.shape)
         
 
         tgt_token_emb = self.token_embedding(tgt)
-        print("tgt_token_emb shape:",tgt_token_emb.shape)
+        # print("tgt_token_emb shape:",tgt_token_emb.shape)
         tgt_position_emb = self.position_embedding(tgt)
-        print("tgt_position_emb shape:",tgt_position_emb.shape)
+        # print("tgt_position_emb shape:",tgt_position_emb.shape)
         tgt_embedding = tgt_token_emb + tgt_position_emb
-        print("tgt_embedding shape:",tgt_embedding.shape)
+        # print("tgt_embedding shape:",tgt_embedding.shape)
 
         memory=self.encoder(src_embedding)
 
@@ -270,7 +270,7 @@ class TransformerEncoderLayer(nn.Module):
     Args:
         d_model: the embedding dimensions of encoder/decoder inputs(default=512)
         nhead: the number of heads in the multiheadattention models(default=8)
-        dim_feedforward: the dimension of the feedforward network(default=2048)
+        hidden_dim: the dimension of the feedforward network(default=2048)
         dropout: the dropout value(default=0.1)
         activation: the activation function of encoder/decoder intermediate layer, relu or gelu. default=relu
     """
