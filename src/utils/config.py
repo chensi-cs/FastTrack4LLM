@@ -3,24 +3,28 @@ import torch
 class Config:
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.batch_size = 32
-        self.num_epochs = 10
-        self.learning_rate = 0.001
-        self.n_head = 8
-        self.hidden_dim = 2024
-        self.num_layers = 6
-        self.dropout = 0.1
+        self.batch_size = 32 # batch size
+        self.num_epochs = 10 # number of epochs
+        self.learning_rate = 0.001 # learning rate
+        self.n_head = 8 # number of heads for multi-head attention
+        self.hidden_dim = 2024 # hidden dimension for feedforward network
+        self.num_layers = 6 # number of layers
+        self.dropout = 0.1 # dropout rate
+        self.embed_dim = 128 # embedding dimension for one token
+        self.max_length = 128 # max length of input sequence
+        self.vocab_size = 10000 # vocabulary size
+        self.position_type = 'sin_cos'
+        self.norm_type = 'layer_norm'
+
         # self.num_workers = 4
-        self.data_path = 'data.csv'
-        self.validation_path = 'validation.csv'
-        self.test_path = 'test.csv'
-        self.tokenizer_path = 'tokenizer.json'
-        self.model_save_path = 'saved_models'
-        self.log_dir = 'logs'
-        self.checkpoint_path = 'checkpoints'
-        self.embedding_dim = 128
-        self.max_length = 128
-        self.vocab_size = 10000
+        self.data_path = 'data.csv' # train data path
+        self.validation_path = 'validation.csv' # validation data path
+        self.test_path = 'test.csv' # test data path
+        self.tokenizer_path = 'tokenizer.json' # tokenizer path
+        self.model_save_path = 'saved_models' # model save path
+        self.log_dir = 'logs' # log directory
+        self.checkpoint_path = 'checkpoints' # checkpoint path
+        
 
     def __str__(self):
         # 自定义打印格式，方便查看配置信息
