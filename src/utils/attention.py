@@ -4,7 +4,7 @@ import math
 from utils.position_embed import apply_rotary_pos_emb
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, config,freqs_cos = None  ,freqs_sin = None):
+    def __init__(self, config,freqs_cos = None ,freqs_sin = None):
         super().__init__()
         self.d_model = config.d_model
         self.num_heads = config.num_heads
