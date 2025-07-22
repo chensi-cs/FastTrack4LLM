@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
-from utils.activations import relu, gelu,silu
+from torch.nn import functional as F
+
 
 class FeedForward(nn.Module):
     def __inin__(self, config):
@@ -8,11 +9,11 @@ class FeedForward(nn.Module):
         self.d_model = config.d_model
         self.hidden_dim = config.hidden_dim
         if config.activation == "relu":
-            self.activation = relu
+            self.activation = F.relu
         elif config.activation == "gelu":
-            self.activation = gelu
+            self.activation = F.gelu
         elif config.activation == "silu":
-            self.activation = silu
+            self.activation = F.silu
         else:
             raise ValueError("activation must be one of ['relu', 'gelu', 'silu']")
         self.up_proj = nn.Linear(self.d_model,self.hidden_dim)
