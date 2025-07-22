@@ -6,15 +6,16 @@ class Config:
         self.batch_size = 32 # batch size
         self.num_epochs = 10 # number of epochs
         self.learning_rate = 0.001 # learning rate
-        self.n_head = 8 # number of heads for multi-head attention
+        self.num_heads = 8 # number of heads for multi-head attention
         self.hidden_dim = 2024 # hidden dimension for feedforward network
         self.num_layers = 6 # number of layers
         self.dropout = 0.1 # dropout rate
-        self.embed_dim = 128 # embedding dimension for one token
-        self.max_length = 128 # max length of input sequence
+        self.d_model = 128 # embedding dimension for one token
+        self.max_len = 128 # max length of input sequence
         self.vocab_size = 10000 # vocabulary size
         self.position_type = 'sin_cos'
-        self.norm_type = 'layer_norm'
+        self.activation = 'relu'
+        self.kv_cache = True
 
         # self.num_workers = 4
         self.data_path = 'data.csv' # train data path
