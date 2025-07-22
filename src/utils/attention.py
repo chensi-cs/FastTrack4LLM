@@ -22,13 +22,13 @@ class MultiHeadAttention(nn.Module):
         self.scale = math.sqrt(self.head_dim)
         self.position_type = config.position_type
         self.iscausal = config.iscausal
-        
+        self.kv_cache = config.kv_cache
         if self.position_type == "rope":
             self.freqs_cos = freqs_cos
             self.freqs_sin = freqs_sin
         
 
-    def forward(self,x):
+    def forward(self,x,cache_k=None,cache_v=None):
         batch_size, seq_len , _ = x.shape
         q = self.wq(x)
         k = self.wk(x)
@@ -44,7 +44,13 @@ class MultiHeadAttention(nn.Module):
             self.freqs_sin = self.freqs_sin[:seq_len]
             q, k = apply_rotary_pos_emb(q,k,self.freqs_cos,self.freqs_sin)
 
-
+        # 应用 kv cache
+        if  self.kv_cache:
+            # 如果启用了kv_cache，则将当前k和v与缓存的k和v拼接
+            if cache_k is not None and cache_v is not None:
+                k = torch.cat([self.cache_k,k],dim=2)
+                v = torch.cat([self.cache_v,v],dim=2)
+        
         # 计算注意力分数
         # [batch, num_heads, seq_len, seq_len]
         attn_scores = torch.matmul(q,k.transpose(-2,-1))/self.scale
@@ -62,7 +68,7 @@ class MultiHeadAttention(nn.Module):
         attn_output = attn_output.transpose(1,2).contiguous().view(batch_size,seq_len,self.d_model)
         output = self.wo(attn_output)
         output = self.out_dropout(output)
-        return output
+        return output,k,v
 
 
 
