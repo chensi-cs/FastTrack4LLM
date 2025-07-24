@@ -4,7 +4,7 @@ from torch.nn import functional as F
 
 
 class FeedForward(nn.Module):
-    def __inin__(self, config):
+    def __init__(self, config):
         super().__init__()
         self.d_model = config.d_model
         self.hidden_dim = config.hidden_dim

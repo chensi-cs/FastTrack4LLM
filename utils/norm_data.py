@@ -15,17 +15,29 @@ class RMSNorm(nn.Module):
         self.eps=eps
         self.dim=dim
         # 可训练的缩放参数
-        self.gamma = nn.parameter(torch.ones(dim))
+        self.gamma = nn.Parameter(torch.ones(dim))
     
     def _rms(self,x):
         """
         计算输入张量的平方根均值
         return: 输入张量的平方根均值
         """
+        x=x.float()
         # 假设 x 是一个三维张量，维度为 (batch_size, sequence_length, d_model)
         # .mean(-1, keepdim=True) 是指在最后一个维度（特征维度）上计算平均值，并保持维度不变
         return torch.sqrt(x.pow(2).mean(-1,keepdim=True)+self.eps)
 
     def forward(self,x):
+        #print("x shape:",x.shape)
+        rms = self._rms(x)
+        #print("rms shape:",rms.shape)
+        #print("gamma shape:",self.gamma.shape)
+
+        #print("x:",x)
+        #print("rms:",rms)
+        #print("gamma:",self.gamma)
+        res = self.gamma*(x/rms).type_as(x)
+        #print("res shape:",res.shape)
+        #print("res:",res)
         return self.gamma*(x/self._rms(x)).type_as(x)
     
