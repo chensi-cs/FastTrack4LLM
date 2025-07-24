@@ -17,7 +17,7 @@ class PretrainDataset(Dataset):
             data = json.load(file)
         return data
 
-    def len(self):
+    def __len__(self):
         return len(self.data)
     
     def __getitem__(self, idx):
