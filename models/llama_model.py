@@ -10,11 +10,11 @@ class Llama1Block(nn.Module):
     def __init__(self,layer_id,config,freqs_cos, freqs_sin):
         super().__init__()
         self.layer_id = layer_id
-        self.config = config
         self.d_model = config.d_model
         self.num_heads = config.num_heads
         self.dropout = config.dropout
-        self.freqs_cos, self.freqs_sin = precompute_rope_matrix(self.max_len,self.d_model)
+        self.max_len = config.max_len
+        self.freqs_cos, self.freqs_sin = freqs_cos, freqs_sin
         self.attention =  MultiHeadAttention(config,freqs_cos, freqs_sin)
         self.ffn = FeedForward(config)
         self.norm = RMSNorm(dim=self.d_model)
@@ -47,7 +47,7 @@ class Llama1Model(nn.Module):
         self.num_layers = config.num_layers
         self.num_heads = config.num_heads
         self.token_embedding = nn.Embedding(self.vocab_size,self.d_model)
-        self.freqs_cos, self.freqs_sin = precompute_rope_matrix(self.max_len,self.d_model)
+        self.freqs_cos, self.freqs_sin = precompute_rope_matrix(self.max_len,self.d_model //self.num_heads)
         self.dropout = nn.Dropout(config.dropout)
         self.layers = nn.ModuleList([Llama1Block(layer_id,config,self.freqs_cos, self.freqs_sin) for layer_id in range(self.num_layers)])
         self.norm = RMSNorm(dim=self.d_model)
@@ -55,6 +55,7 @@ class Llama1Model(nn.Module):
     
     def forward(self,x):
         past_k,past_v=None,None
+        x=self.token_embedding(x)
         for layer in self.layers:
             x,past_k,past_v=layer(x,past_k,past_v)
         output=self.output_layer(x)
