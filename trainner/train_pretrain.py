@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import json
 import torch
@@ -125,9 +126,19 @@ def train(config):
         logger.info(f"Epoch {epoch}, average val loss: {val_loss}")
         logger.info("-"*100)
 
-        # if val_loss < best_val_loss:
-        #     best_val_loss = val_loss
-        #     torch.save(model.state_dict(), config.model_path)
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'val_loss': val_loss,
+                'train_loss': train_loss,
+            }
+            torch.save(checkpoint, config.checkpoint_path)
+            logger.info(f"New best model saved at {config.checkpoint_path} with val loss: {val_loss}")
+            
+    logger.info("Training completed.")
     
 
 

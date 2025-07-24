@@ -19,6 +19,7 @@ class Config:
         self.model = 'llama3'
         self.optimizer = 'adamw'
         self.iscausal = True
+        self.patience = 5 # early stopping patience
 
         # self.num_workers = 4
         self.data_path = 'data.csv' # train data path
@@ -35,7 +36,7 @@ class Config:
         return f"Config(device={self.device}, batch_size={self.batch_size}, num_epochs={self.num_epochs}, learning_rate={self.lr}, " \
                f"data_path={self.data_path}, tokenizer_path={self.tokenizer_path}, model_save_path={self.model_save_path}, log_dir={self.log_dir}, " \
                f"checkpoint_path={self.checkpoint_path}, d_model={self.d_model}, max_len={self.max_len}, vocab_size={self.vocab_size}, " \
-               f"validation_path={self.val_path}, test_path={self.test_path})"
+               f"validation_path={self.val_path}, test_path={self.test_path}),early stopping patience = {self.patience}" 
 
     def __repr__(self):
         return self.__str__()

@@ -7,14 +7,16 @@ from utils.attention import  MultiHeadAttention
 from utils.feed_forward import FeedForward
 
 class Llama1Block(nn.Module):
-    def __init__(self,layer_id,config,freqs_cos, freqs_sin):
+    def __init__(self,layer_id,config,freqs_cos,freqs_sin):
         super().__init__()
         self.layer_id = layer_id
         self.d_model = config.d_model
         self.num_heads = config.num_heads
         self.dropout = config.dropout
         self.max_len = config.max_len
-        self.freqs_cos, self.freqs_sin = freqs_cos, freqs_sin
+        self.device = config.device
+        freqs_cos = freqs_cos.to(self.device)
+        freqs_sin = freqs_sin.to(self.device)
         self.attention =  MultiHeadAttention(config,freqs_cos, freqs_sin)
         self.ffn = FeedForward(config)
         self.norm = RMSNorm(dim=self.d_model)

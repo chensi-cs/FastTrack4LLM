@@ -109,6 +109,7 @@ class MultiHeadAttention(nn.Module):
         if self.iscausal:
             batch_size, num_heads, seq_len, _= attn_scores.shape
             mask = torch.triu(torch.ones(seq_len,seq_len),diagonal=1)
+            mask = mask.to(attn_scores.device)
             attn_scores =  attn_scores.masked_fill(mask==1,float('-inf'))
         print("after causal mask:")
         print("attn_scores shape: ",attn_scores.shape)
