@@ -1,10 +1,10 @@
 import torch 
 import torch.nn as nn
 
-from utils.position_embed import *
-from utils.norm_data import RMSNorm
-from utils.attention import  MultiHeadAttention
-from utils.feed_forward import FeedForward
+from position_embed import *
+from norm_data import RMSNorm
+from attention import  MultiHeadAttention
+from feed_forward import FeedForward
 
 class Llama1Block(nn.Module):
     def __init__(self,layer_id,config,freqs_cos,freqs_sin):
