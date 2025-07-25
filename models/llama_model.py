@@ -60,6 +60,8 @@ class Llama1Model(nn.Module):
         x=self.token_embedding(x)
         for layer in self.layers:
             x,past_k,past_v=layer(x,past_k,past_v)
+        # 计算output之前的归一化
+        x=self.norm(x)
         output=self.output_layer(x)
         return output
 

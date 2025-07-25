@@ -92,6 +92,11 @@ def evaluate(model,val_loader,device,config):
 
 
 def train(config):
+    os.makedirs(config.model_save_path,exist_ok=True)
+    os.makedirs(config.log_dir, exist_ok=True)
+    os.makedirs(config.checkpoint_path, exist_ok=True)
+
+
     # 训练逻辑
     device = config.device
     if config.model == 'llama1':
