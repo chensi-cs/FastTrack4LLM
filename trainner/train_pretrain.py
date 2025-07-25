@@ -7,15 +7,17 @@ import argparse
 import torch.optim as optim
 from torch.utils.data import DataLoader 
 import sys
+from utils.config import Config
+from utils.data import PretrainDataset  
+from models.llama_model import Llama1Model
+from utils.utils import EarlyStopping   
+import logging
+
+
 from pathlib import Path
 
 # 添加项目根目录到sys.path
 sys.path.append(str(Path(__file__).parent.parent))
-
-from utils.config import Config
-from utils.data import PretrainDataset  
-from models.llama_model import Llama1Model
-import logging
 
 
 # 基础配置：输出到终端，级别为INFO，格式包含时间、级别、消息
@@ -38,28 +40,33 @@ def  train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     
     avg_loss = 0.0
     
+    accumulation_steps = 10
+    optimizer.zero_grad()
 
     for batch_idx, batch in enumerate(train_loader):
         x, y, loss_mask = batch
         x = x.to(device)
         y = y.to(device)
         loss_mask = loss_mask.to(device)
-        optimizer.zero_grad()
-
 
         output = model(x)
         logger.info(f"Output shape: {output.shape}")
         logger.info(f"Output: {output}")
         logger.info(f"Y shape: {y.shape}")
         logger.info(f"Y: {y}")
-    
 
-        loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
-        print(f"Loss shape: {loss.shape}")
-        print(f"Loss: {loss}")
+        running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
+
+        # 梯度累积的操作之一
+        loss = running_loss / accumulation_steps 
+
         loss.backward()
-        optimizer.step()
-        train_loss += loss.item()
+
+        if (batch_idx+1) % accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()
+
+        train_loss += running_loss.item()
         avg_loss = train_loss / (batch_idx+1)
         logger.info(f"Epoch {epoch}, batch {batch_idx}, loss: {avg_loss}")
     return avg_loss
@@ -116,6 +123,7 @@ def train(config):
 
     history = {"train_loss": [], "val_loss": []}
     best_val_loss = float('inf')
+    early_stopping = EarlyStopping(config.patience)
 
     for epoch in range(1,1+config.num_epochs):
         train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
@@ -137,7 +145,10 @@ def train(config):
             }
             torch.save(checkpoint, config.checkpoint_path)
             logger.info(f"New best model saved at {config.checkpoint_path} with val loss: {val_loss}")
-            
+        
+        if early_stopping(val_loss):
+            logger.info(f"Early stopping at epoch {epoch}")
+            break
     logger.info("Training completed.")
     
 

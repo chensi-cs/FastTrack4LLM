@@ -29,6 +29,11 @@ class Config:
         self.model_save_path = 'saved_models' # model save path
         self.log_dir = 'logs' # log directory
         self.checkpoint_path = 'checkpoints' # checkpoint path
+
+        # 测试一些训练技巧
+        self.test_early_stopping = False
+        self.test_grad_accumulation = False
+        
         
 
     def __str__(self):
