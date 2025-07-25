@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 class RMSNorm(nn.Module):
-    def __init__(self,dim,eps=1e-6):
+    def __init__(self,dim,eps=1e-5):
         """
         RMSNorm实现
         参数：

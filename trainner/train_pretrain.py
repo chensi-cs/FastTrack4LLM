@@ -31,7 +31,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def  train_one_epoch(model,train_loader,optimizer,device,epoch,config):
+def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     model.train()
     # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'）。
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
@@ -108,13 +108,13 @@ def train(config):
     logger.info(f"Model {config.model} loaded")
     logger.info(f"config: {config}")
     logger.info("Loading datasets...")
-    train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_len)
+    train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
     train_loader = DataLoader(train_dataset,batch_size=config.batch_size, shuffle=True,num_workers=0)
 
-    val_dataset = PretrainDataset( config.val_path,config.tokenizer_path,config.max_len)
+    val_dataset = PretrainDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
     val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
 
-    test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_len)
+    test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
     test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
 
 
@@ -162,18 +162,18 @@ def train(config):
 if __name__ == "__main__":
     config = Config()
     logging.info("Start training")
-    config.data_path = "data/model_data/train.json"
-    config.val_path = "data/model_data/val.json"
-    config.test_path = "data/model_data/test.json"
-    config.tokenizer_path = "data/"
-    config.vocab_size = 6400
-    config.model = 'llama1'
-    config.d_model = 4
-    config.num_heads = 1
-    config.num_layers = 2
-    config.hidden_dim = 10
-    config.batch_size = 1
-    config.max_len = 10
-    config.num_epochs = 1
+    # config.data_path = "data/model_data/train.json"
+    # config.val_path = "data/model_data/val.json"
+    # config.test_path = "data/model_data/test.json"
+    # config.tokenizer_path = "data/"
+    # config.vocab_size = 6400
+    # config.model = 'llama1'
+    # config.d_model = 512
+    # config.num_heads = 1
+    # config.num_layers = 2
+    # config.hidden_dim = 10
+    # config.batch_size = 1
+    # config.max_seq_len = 10
+    # config.num_epochs = 1
     # config.kv_cache = True  
     train(config)

@@ -31,7 +31,7 @@ def precompute_rope_matrix(max_len,d_model):
     """
     生成旋转位置编码矩阵
     参数：
-        max_len: 最大序列长度，默认为1024。
+        max_len: 最大position embedding长度，默认为32768。
         d_model: 嵌入维度，默认为512。
     返回：
         旋转位置编码矩阵

@@ -5,10 +5,10 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import AutoTokenizer
 
 class PretrainDataset(Dataset):
-    def __init__(self, data_path, tokenizer_path, max_len):
+    def __init__(self, data_path, tokenizer_path, max_seq_len):
         self.data_path = data_path
         self.tokenizer_path = tokenizer_path
-        self.max_len = max_len
+        self.max_seq_len = max_seq_len
         self.data = self.load_data()
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
     
@@ -25,7 +25,7 @@ class PretrainDataset(Dataset):
         sentence = item['text']
         encoding = self.tokenizer(
             str(sentence),
-            max_length=self.max_len,
+            max_length=self.max_seq_len,
             padding='max_length',
             truncation=True,
             return_tensors='pt'
