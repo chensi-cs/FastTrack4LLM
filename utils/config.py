@@ -27,7 +27,7 @@ class Config:
         self.data_path = 'data/model_data/train.json' # train data path
         self.val_path = 'data/model_data/val.json' # validation data path
         self.test_path = 'data/model_data/test.json' # test data path
-        self.tokenizer_path = 'tokenizer.json' # tokenizer path
+        self.tokenizer_path = 'data/' # tokenizer path
         self.model_save_path = 'saved_models' # model save path
         self.log_dir = 'logs' # log directory
         self.checkpoint_path = 'checkpoints' # checkpoint path

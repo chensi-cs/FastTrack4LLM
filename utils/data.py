@@ -10,6 +10,7 @@ class PretrainDataset(Dataset):
         self.tokenizer_path = tokenizer_path
         self.max_seq_len = max_seq_len
         self.data = self.load_data()
+        print(len(self.data),"samples loaded from",self.data_path)
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_path)
     
     def load_data(self):

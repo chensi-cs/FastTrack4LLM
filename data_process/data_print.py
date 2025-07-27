@@ -13,7 +13,7 @@ def print_and_save_json(input_file, output_file):
     else:
         raise ValueError("Unsupported JSON format. Expected an array or object.")
     
-    # Print the result
+
     # print(json.dumps(result, indent=4, ensure_ascii=False))
     
     # Save the result
@@ -21,6 +21,6 @@ def print_and_save_json(input_file, output_file):
         json.dump(result, f, indent=4, ensure_ascii=False)
 
 if __name__ == '__main__':
-    input_file = "../../data/llm_data/processed/sft_mini_512.json"  # Replace with your JSON file path
-    output_file = "../../data/llm_data/processed/demo_data/sft_mini_512_headn.json"  # Replace with your desired output file path
+    input_file = "../data/llm_data/processed/pretrain_hq.json" 
+    output_file = "../data/llm_data/processed/demo_data/pretrain_hq_demo.json"  
     print_and_save_json(input_file, output_file)
