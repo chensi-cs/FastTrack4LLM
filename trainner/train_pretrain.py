@@ -3,12 +3,14 @@ import os
 import json
 import torch
 import torch.nn as nn
+from datetime import datetime
 import argparse
 import torch.optim as optim
 from torch.utils.data import DataLoader 
-import logging
 import sys
 from pathlib import Path
+import logging
+from torch.utils.tensorboard import SummaryWriter
 
 # 获取当前脚本的绝对路径
 script_path = Path(__file__).resolve()  # 例如：/Users/cs/cs-work/llm_learning/trainner/train_pretrain.py
@@ -27,22 +29,36 @@ print("搜索路径:", sys.path)
 from utils.config import Config
 from utils.data import PretrainDataset  
 from models.llama_model import Llama1Model
-from utils.utils import EarlyStopping   
+from utils.utils import EarlyStopping
 
 
+logger = logging.getLogger("train_logger")
+logger.setLevel(logging.INFO)  # 设置日志级别
 
-# 基础配置：输出到终端，级别为INFO，格式包含时间、级别、消息
-logging.basicConfig(
-    level=logging.INFO,  # 日志级别
-    format="%(asctime)s - %(levelname)s - %(message)s",  # 格式
-    datefmt="%Y-%m-%d %H:%M:%S"  # 时间格式
+# 定义日志格式（包含时间、级别、内容等）
+formatter = logging.Formatter(
+    "%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-# 获取日志器（通常用__name__表示当前模块）
-logger = logging.getLogger(__name__)
+# 1. 控制台输出Handler
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
 
+
+log_filename = f"logs/training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"  # 带时间戳的文件名
+file_handler = logging.FileHandler(log_filename, encoding="utf-8")  # 保存为.log文件
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# 初始化TensorBoard写入器
+def setup_tensorboard():
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return SummaryWriter(f'logs/train_{timestamp}')
 
 def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
+    setup_tensorboard()  # 初始化TensorBoard写入器
     model.train()
     # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'）。
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
@@ -61,10 +77,6 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         loss_mask = loss_mask.to(device)
 
         output = model(x)
-        logger.info(f"Output shape: {output.shape}")
-        logger.info(f"Output: {output}")
-        logger.info(f"Y shape: {y.shape}")
-        logger.info(f"Y: {y}")
 
         running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
 
@@ -93,8 +105,6 @@ def evaluate(model,val_loader,device,config):
         loss_mask = loss_mask.to(device)
         with torch.no_grad():
             output = model(x)
-            logger.info(f"Output shape: {output.shape}")
-            logger.info(f"Y shape: {y.shape}")
             loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
             val_loss += loss.item()
     val_loss = val_loss / len(val_loader)
@@ -159,7 +169,8 @@ def train(config):
                 'val_loss': val_loss,
                 'train_loss': train_loss,
             }
-            torch.save(checkpoint, config.checkpoint_path)
+            checkpoint_saved_path = os.path.join(config.checkpoint_path, f"checkpoint_epoch_{epoch}.pt")
+            torch.save(checkpoint, checkpoint_saved_path)
             logger.info(f"New best model saved at {config.checkpoint_path} with val loss: {val_loss}")
         
         if early_stopping(val_loss):
@@ -185,6 +196,6 @@ if __name__ == "__main__":
     # config.hidden_dim = 10
     # config.batch_size = 1
     # config.max_seq_len = 10
-    # config.num_epochs = 1
+    config.num_epochs = 1
     # config.kv_cache = True  
     train(config)
