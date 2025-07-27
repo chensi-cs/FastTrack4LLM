@@ -30,6 +30,7 @@ class MultiHeadAttention(nn.Module):
 
     def forward(self,x,cache_k=None,cache_v=None):
         batch_size, seq_len , _ = x.shape
+
         # print("x shape: ",x.shape)
         # print("x :",x)
 

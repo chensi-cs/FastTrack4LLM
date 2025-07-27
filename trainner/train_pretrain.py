@@ -32,33 +32,43 @@ from models.llama_model import Llama1Model
 from utils.utils import EarlyStopping
 
 
-logger = logging.getLogger("train_logger")
-logger.setLevel(logging.INFO)  # 设置日志级别
+# 配置日志
+def setup_logger(log_dir='logs'):
+    logger = logging.getLogger("global_logger")
+    logger.setLevel(logging.INFO)
+    
+    # 确保只添加一次handler（避免重复输出）
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        
+        # 控制台输出
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+        # 文件输出
+        os.makedirs(log_dir, exist_ok=True)
+        log_filename = f"{log_dir}/training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        file_handler = logging.FileHandler(log_filename, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    
+    return logger
 
-# 定义日志格式（包含时间、级别、内容等）
-formatter = logging.Formatter(
-    "%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-
-# 1. 控制台输出Handler
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(formatter)
-logger.addHandler(console_handler)
-
-
-log_filename = f"logs/training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"  # 带时间戳的文件名
-file_handler = logging.FileHandler(log_filename, encoding="utf-8")  # 保存为.log文件
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
+# 初始化全局logger
+logger = setup_logger()
 
 # 初始化TensorBoard写入器
 def setup_tensorboard():
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return SummaryWriter(f'logs/train_{timestamp}')
+    return SummaryWriter(f'logs/train_{datetime.now().strftime("%Y%m%d_%H%M%S")}')
+
+# 初始化TensorBoard写入器并保存实例
+writer = setup_tensorboard()
 
 def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
-    setup_tensorboard()  # 初始化TensorBoard写入器
     model.train()
     # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'）。
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
@@ -117,6 +127,7 @@ def train(config):
     os.makedirs(config.log_dir, exist_ok=True)
     os.makedirs(config.checkpoint_path, exist_ok=True)
 
+    
 
     # 训练逻辑
     device = config.device
@@ -124,7 +135,8 @@ def train(config):
         model = Llama1Model(config)
     else:
         raise ValueError(f"Model {config.model} not supported")
-
+    
+    
     model.to(device)
     logger.info(f"Model {config.model} loaded")
     logger.info(f"config: {config}")
@@ -137,7 +149,6 @@ def train(config):
 
     test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
     test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
-
 
     logger.info(f"Datasets loaded successfully...")
     logger.info(f"Number of training samples: {len(train_dataset)}")
@@ -160,6 +171,11 @@ def train(config):
         logger.info(f"Epoch {epoch}, average val loss: {val_loss}")
         logger.info("-"*100)
 
+        # 记录训练损失
+        writer.add_scalar("Loss/Train", train_loss, epoch)  # 标签路径建议分类，方便TB中分组查看
+        # 记录验证损失
+        writer.add_scalar("Loss/Validation", val_loss, epoch)
+
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             checkpoint = {
@@ -173,17 +189,33 @@ def train(config):
             torch.save(checkpoint, checkpoint_saved_path)
             logger.info(f"New best model saved at {config.checkpoint_path} with val loss: {val_loss}")
         
+        # 记录参数分布
+        for name, param in model.named_parameters():
+            # 记录参数值分布
+            writer.add_histogram(f"Parameters/{name}", param, epoch)  # 参数值的直方图
+            # 记录参数梯度分布（仅训练阶段有梯度）
+            if param.grad is not None:
+                writer.add_histogram(f"Gradients/{name}", param.grad, epoch)
+
+        # 记录当前学习率（取第一个参数组的学习率即可，默认所有组一致）
+        current_lr = optimizer.param_groups[0]['lr']
+        writer.add_scalar("LearningRate", current_lr, epoch)
+
         if early_stopping(val_loss):
             logger.info(f"Early stopping at epoch {epoch}")
             break
+
+        
     logger.info("Training completed.")
-    
+    writer.close()  # 必须添加，否则可能导致日志未完全写入
 
 
 
 if __name__ == "__main__":
     config = Config()
     logging.info("Start training")
+    
+
     # config.data_path = "data/model_data/train.json"
     # config.val_path = "data/model_data/val.json"
     # config.test_path = "data/model_data/test.json"
