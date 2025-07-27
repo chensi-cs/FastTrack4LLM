@@ -1,10 +1,12 @@
 import torch 
 import torch.nn as nn
+import sys
+print("Python path:", sys.path)
+from models.position_embed import *
+from models.norm_data import RMSNorm
+from models.attention import  MultiHeadAttention
+from models.feed_forward import FeedForward
 
-from position_embed import *
-from norm_data import RMSNorm
-from attention import  MultiHeadAttention
-from feed_forward import FeedForward
 
 class Llama1Block(nn.Module):
     def __init__(self,layer_id,config,freqs_cos,freqs_sin):
@@ -47,6 +49,7 @@ class Llama1Model(nn.Module):
         self.num_layers = config.num_layers
         self.num_heads = config.num_heads
         self.token_embedding = nn.Embedding(self.vocab_size,self.d_model)
+        self.max_position_len = config.max_position_len
         self.freqs_cos, self.freqs_sin = precompute_rope_matrix(self.max_position_len,self.d_model //self.num_heads)
         self.dropout = nn.Dropout(config.dropout)
         self.layers = nn.ModuleList([Llama1Block(layer_id,config,self.freqs_cos, self.freqs_sin) for layer_id in range(self.num_layers)])

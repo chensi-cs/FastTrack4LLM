@@ -6,18 +6,29 @@ import torch.nn as nn
 import argparse
 import torch.optim as optim
 from torch.utils.data import DataLoader 
+import logging
 import sys
+from pathlib import Path
+
+# 获取当前脚本的绝对路径
+script_path = Path(__file__).resolve()  # 例如：/Users/cs/cs-work/llm_learning/trainner/train_pretrain.py
+
+# 获取项目根目录（祖父目录）
+project_root = str(script_path.parent.parent)  # 例如：/Users/cs/cs-work/llm_learning
+
+# 添加项目根目录到sys.path
+sys.path.append(project_root)
+
+
+# 打印验证（绝对路径会清晰显示）
+print("项目根目录:", project_root)
+print("搜索路径:", sys.path)
+
 from utils.config import Config
 from utils.data import PretrainDataset  
 from models.llama_model import Llama1Model
 from utils.utils import EarlyStopping   
-import logging
 
-
-from pathlib import Path
-
-# 添加项目根目录到sys.path
-sys.path.append(str(Path(__file__).parent.parent))
 
 
 # 基础配置：输出到终端，级别为INFO，格式包含时间、级别、消息

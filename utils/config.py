@@ -51,5 +51,21 @@ class Config:
     def __repr__(self):
         return self.__str__()
 
-config = Config()
-print(config)
+
+class Llama1Config(Config):
+    def __init__(self):
+        super().__init__()
+        self.model = 'llama1'
+        self.num_layers = 8
+
+class Llama2Config(Config):
+    def __init__(self):
+        super().__init__()
+        self.model = 'llama2'
+        self.num_layers = 12
+
+class Llama3Config(Config):
+    def __init__(self):
+        super().__init__()
+        self.model = 'llama3'
+        self.num_layers = 16

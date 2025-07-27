@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import math
-from position_embed import apply_rotary_pos_emb
+from models.position_embed import apply_rotary_pos_emb
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, config,freqs_cos = None ,freqs_sin = None):
