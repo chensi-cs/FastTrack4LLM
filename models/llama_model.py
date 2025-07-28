@@ -67,6 +67,7 @@ class Llama1Model(nn.Module):
 
 class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
     def __init__(self,config):
+        self.config = config
         super().__init__(self.config)
         self.model=Llama1Model(config)
     def forward(self,x):

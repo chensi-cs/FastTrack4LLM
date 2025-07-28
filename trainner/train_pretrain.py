@@ -33,6 +33,7 @@ from utils.data import PretrainDataset
 from models.llama_model import Llama1Model, Llama1ForCausalLM
 from utils.utils import EarlyStopping
 
+epoch_loss_list = []
 
 # 配置日志
 def setup_logger(log_dir):
@@ -62,10 +63,8 @@ def setup_logger(log_dir):
     return logger
 
 
-
 # 初始化TensorBoard写入器
 def setup_tensorboard(log_dir):
-    global writer
     return SummaryWriter(log_dir)
 
 def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
@@ -74,14 +73,15 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
     criterion =  nn.CrossEntropyLoss(ignore_index=0)
     train_loss = 0.0
-    
     avg_loss = 0.0
-    epoch_loss_list = []
     
     accumulation_steps = 10
     optimizer.zero_grad()
+    epoch_loss_list = []
 
     for batch_idx, batch in enumerate(train_loader):
+        start_time = datetime.now()
+        logger.info(f"Epoch {epoch}, Batch {batch_idx} start at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         x, y, loss_mask = batch
         x = x.to(device)
         y = y.to(device)
@@ -91,6 +91,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
 
         running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
         epoch_loss_list.append(running_loss.item())
+
         # 梯度累积的操作之一
         loss = running_loss / accumulation_steps 
 
@@ -124,8 +125,11 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
 
         train_loss += running_loss.item()
         avg_loss = train_loss / (batch_idx+1)
+        end_time = datetime.now()
+        logger.info(f"Epoch {epoch}, Batch {batch_idx} end at {end_time.strftime('%Y-%m-%d %H:%M:%S')}, "
+        logger.info(f"Epoch {epoch}, Batch {batch_idx} duration: {(end_time - start_time).total_seconds() / 60} minutes")
 
-    return avg_loss,epoch_loss_list
+    return avg_loss
         
 def evaluate(model,val_loader,device,config):
     model.eval()
@@ -161,9 +165,6 @@ def train(config):
     os.makedirs(config.model_save_path,exist_ok=True)
     os.makedirs(config.log_dir, exist_ok=True)
     os.makedirs(config.checkpoint_path, exist_ok=True)
-    
-    # 初始化全局logger
-    logger = setup_logger(config.log_dir)
     global writer
     global wandb
     
@@ -224,19 +225,22 @@ def train(config):
     early_stopping = EarlyStopping(config.patience)
 
     for epoch in range(1,1+config.num_epochs):
-        train_loss,train_loss_list = train_one_epoch(model,train_loader,optimizer,device,epoch,config,wandb,writer)
+        train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
         history['train_loss'].append(train_loss)
         logger.info(f"Epoch {epoch}, average train loss: {train_loss}")
-        val_loss = evaluate(model,val_loader,device,config)
-        history['val_loss'].append(val_loss)
-        logger.info(f"Epoch {epoch}, average val loss: {val_loss}")
-
-        plot_loss(train_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
-        np.save(os.path.join(config.log_dir, f'{epoch}_training_history.npy'), train_loss_list)
-
-        logger.info("-"*100)
+        
+        plot_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
+        np.save(os.path.join(config.log_dir, f'{epoch}_training_history.npy'), epoch_loss_list)
+        
 
         if config.evaluate_val:
+            val_loss = evaluate(model,val_loader,device,config)
+            history['val_loss'].append(val_loss)
+            logger.info(f"Epoch {epoch}, average val loss: {val_loss}")
+
+            # 记录验证损失
+            writer.add_scalar("Loss/Validation", val_loss, epoch)
+
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 checkpoint = {
@@ -256,8 +260,6 @@ def train(config):
         if writer is not None:
             # 记录训练损失
             writer.add_scalar("Loss/Train", train_loss, epoch)  # 标签路径建议分类，方便TB中分组查看
-            # 记录验证损失
-            writer.add_scalar("Loss/Validation", val_loss, epoch)
 
             # 记录参数分布
             for name, param in model.named_parameters():
@@ -275,6 +277,7 @@ def train(config):
         model.eval()  # 切换到推理模式
         model_save_path = os.path.join(config.model_save_path, f"{config.model}_model_epoch_{epoch}.pt")
         torch.save(model.state_dict(), model_save_path)
+        logger.info("-"*100)
         
     logger.info("Training completed.")
     
@@ -283,15 +286,21 @@ def train(config):
 
 
 if __name__ == "__main__":
+    # 初始化全局logger
+    logger = setup_logger(config.log_dir)
+
+    start_time = datetime.now()
+    logger.info(f"Training started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
     config = TrainConfig()
     logging.info("Start training")
-    config.data_path = "data/model_data/demo/train.json"
-    # config.data_path = "data/llm_data/processed/pretrain_hq.json"
-    # config.val_path = "data/model_data/demo/val.json"
-    # config.test_path = "data/model_data/demo/test.json"
+    # config.data_path = "data/model_data/demo/train.json"
+    config.data_path = "data/llm_data/processed/pretrain_hq.json"
+    config.val_path = "data/model_data/demo/val.json"
+    config.test_path = "data/model_data/demo/test.json"
     
     # 创建包含当前时间的日志目录
-    now_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     config.log_dir = os.path.join("logs", f"train_{now_timestamp}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
 
@@ -302,8 +311,13 @@ if __name__ == "__main__":
     # config.num_heads = 1
     # config.num_layers = 2
     # config.hidden_dim = 10
-    # config.batch_size = 32
     # config.max_seq_len = 10
-    config.num_epochs = 1
     # config.kv_cache = True  
+    config.batch_size = 64
+    config.num_epochs = 1
+    config.evaluate_val = True
+
     train(config)
+    end_time = datetime.now()
+    logger.info(f"Training completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Total training time: {end_time - start_time}")
