@@ -1,5 +1,6 @@
 #!/bin/bash
 
+pkill tensorboatd  # 确保没有旧的TensorBoard进程在运行
 # 获取脚本所在目录的绝对路径，定义为根目录
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 

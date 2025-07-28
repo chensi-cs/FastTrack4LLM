@@ -10,6 +10,8 @@ from torch.utils.data import DataLoader
 import sys
 from pathlib import Path
 import logging
+import wandb
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 
 # 获取当前脚本的绝对路径
@@ -65,10 +67,9 @@ logger = setup_logger()
 def setup_tensorboard():
     return SummaryWriter(f'logs/train_{datetime.now().strftime("%Y%m%d_%H%M%S")}')
 
-# 初始化TensorBoard写入器并保存实例
-writer = setup_tensorboard()
 
-def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
+
+def train_one_epoch(model,train_loader,optimizer,device,epoch,config,wandb,writer):
     model.train()
     # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'）。
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
@@ -76,6 +77,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     train_loss = 0.0
     
     avg_loss = 0.0
+    epoch_loss_list = []
     
     accumulation_steps = 10
     optimizer.zero_grad()
@@ -89,7 +91,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         output = model(x)
 
         running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
-
+        epoch_loss_list.append(running_loss.item())
         # 梯度累积的操作之一
         loss = running_loss / accumulation_steps 
 
@@ -99,10 +101,32 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             optimizer.step()
             optimizer.zero_grad()
 
+        if (batch_idx+1) %  config.log_interval == 0:
+            if wandb:
+                wandb.log({"train_loss": running_loss.item(), "epoch": epoch, "batch_idx": batch_idx})
+            if writer:
+                writer.add_scalar('Batch Loss', running_loss.item(), batch_idx)
+            logger.info(f"Epoch {epoch}, Batch {batch_idx}, Train Loss: {running_loss.item()}")
+
+        if (batch_idx+1) %  config.save_interval == 0:
+            model.eval()  # 切换到推理模式
+            checkpoint = {
+                    'epoch': epoch,
+                    'batch_idx': batch_idx,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'train_loss': running_loss,
+                }
+            checkpoint_saved_path = os.path.join(config.checkpoint_path, f"checkpoint_epoch_{epoch}.pt")
+            torch.save(checkpoint, checkpoint_saved_path)
+            model.train()  # 切换回训练模式
+        
+            
+
         train_loss += running_loss.item()
         avg_loss = train_loss / (batch_idx+1)
-        logger.info(f"Epoch {epoch}, batch {batch_idx}, loss: {avg_loss}")
-    return avg_loss
+
+    return avg_loss,epoch_loss_list
         
 def evaluate(model,val_loader,device,config):
     model.eval()
@@ -121,14 +145,33 @@ def evaluate(model,val_loader,device,config):
     return val_loss
 
 
+def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 5))
+    plt.plot(history, label='Train Loss', color='blue')
+    plt.xlabel('Batch Index')
+    plt.ylabel('Train Loss')
+    plt.title(f'Epoch {epoch_idx} Training  Loss')
+    plt.legend()
+    plt.grid()
+    plt.savefig(save_path)
+    plt.close()
+
 
 def train(config):
     os.makedirs(config.model_save_path,exist_ok=True)
     os.makedirs(config.log_dir, exist_ok=True)
     os.makedirs(config.checkpoint_path, exist_ok=True)
+     
+    if config.use_tensorboard:
+        writer = setup_tensorboard()
+    else:
+        writer = None
 
-    
-
+    if config.use_wandb:
+        wandb.init(project="llm_pretrain", name=f"train_{config.model}_{config.num_epochs}_{config.batch_size}_{config.lr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    else :
+        wandb = None
     # 训练逻辑
     device = config.device
     if config.model == 'llama1':
@@ -141,28 +184,31 @@ def train(config):
     logger.info(f"Model {config.model} loaded")
     # 计算模型总参数量
     total_params = sum(p.numel() for p in model.parameters()) / 1e6
-    logger(f"模型参数量: {total_params:.3f} M")  # 保留两位小数
+    logger.info(f"模型参数量: {total_params:.3f} M")  # 保留两位小数
 
     # 计算可训练参数量
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6
-    logger(f'LLM可训练参数量: {trainable_params:.3f} M')
+    logger.info(f'LLM可训练参数量: {trainable_params:.3f} M')
 
 
     logger.info(f"config: {config}")
     logger.info("Loading datasets...")
     train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
     train_loader = DataLoader(train_dataset,batch_size=config.batch_size, shuffle=True,num_workers=0)
+    logger.info(f"Number of training samples: {len(train_dataset)}")
 
-    val_dataset = PretrainDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
-    val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
+    if config.evaluate_val:
+        val_dataset = PretrainDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
+        val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
+        logger.info(f"Number of validation samples: {len(val_dataset)}")
+    if config.evaluate_test:
+        test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
+        test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
+        logger.info(f"Number of test samples: {len(test_dataset)}")
 
-    test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
-    test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
 
     logger.info(f"Datasets loaded successfully...")
-    logger.info(f"Number of training samples: {len(train_dataset)}")
-    logger.info(f"Number of validation samples: {len(val_dataset)}")
-    logger.info(f"Number of test samples: {len(test_dataset)}")
+
 
     if config.optimizer == 'adamw':
         optimizer = optim.AdamW(model.parameters(),lr=config.lr)
@@ -172,62 +218,71 @@ def train(config):
     early_stopping = EarlyStopping(config.patience)
 
     for epoch in range(1,1+config.num_epochs):
-        train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
+        train_loss,train_loss_list = train_one_epoch(model,train_loader,optimizer,device,epoch,config,wandb,writer)
         history['train_loss'].append(train_loss)
         logger.info(f"Epoch {epoch}, average train loss: {train_loss}")
         val_loss = evaluate(model,val_loader,device,config)
         history['val_loss'].append(val_loss)
         logger.info(f"Epoch {epoch}, average val loss: {val_loss}")
+
+        plot_loss(train_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
+        np.save(os.path.join(config.log_dir, f'{epoch}_training_history.npy'), train_loss_list)
+
         logger.info("-"*100)
 
-        # 记录训练损失
-        writer.add_scalar("Loss/Train", train_loss, epoch)  # 标签路径建议分类，方便TB中分组查看
-        # 记录验证损失
-        writer.add_scalar("Loss/Validation", val_loss, epoch)
+        if config.evaluate_val:
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                checkpoint = {
+                    'epoch': epoch,
+                    'model_state_dict': model.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'val_loss': val_loss,
+                    'train_loss': train_loss,
+                }
+                checkpoint_saved_path = os.path.join(config.checkpoint_path, f"checkpoint_epoch_{epoch}.pt")
+                torch.save(checkpoint, checkpoint_saved_path)
+                logger.info(f"New best model saved at {config.checkpoint_path} with val loss: {val_loss}")
+            if early_stopping(val_loss):
+                logger.info(f"Early stopping at epoch {epoch}")
+                break
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_loss': val_loss,
-                'train_loss': train_loss,
-            }
-            checkpoint_saved_path = os.path.join(config.checkpoint_path, f"checkpoint_epoch_{epoch}.pt")
-            torch.save(checkpoint, checkpoint_saved_path)
-            logger.info(f"New best model saved at {config.checkpoint_path} with val loss: {val_loss}")
-        
-        # 记录参数分布
-        for name, param in model.named_parameters():
-            # 记录参数值分布
-            writer.add_histogram(f"Parameters/{name}", param, epoch)  # 参数值的直方图
-            # 记录参数梯度分布（仅训练阶段有梯度）
-            if param.grad is not None:
-                writer.add_histogram(f"Gradients/{name}", param.grad, epoch)
+        if writer is not None:
+            # 记录训练损失
+            writer.add_scalar("Loss/Train", train_loss, epoch)  # 标签路径建议分类，方便TB中分组查看
+            # 记录验证损失
+            writer.add_scalar("Loss/Validation", val_loss, epoch)
 
-        # 记录当前学习率（取第一个参数组的学习率即可，默认所有组一致）
-        current_lr = optimizer.param_groups[0]['lr']
-        writer.add_scalar("LearningRate", current_lr, epoch)
+            # 记录参数分布
+            for name, param in model.named_parameters():
+                # 记录参数值分布
+                writer.add_histogram(f"Parameters/{name}", param, epoch)  # 参数值的直方图
+                # 记录参数梯度分布（仅训练阶段有梯度）
+                if param.grad is not None:
+                    writer.add_histogram(f"Gradients/{name}", param.grad, epoch)
 
-        if early_stopping(val_loss):
-            logger.info(f"Early stopping at epoch {epoch}")
-            break
+            # 记录当前学习率（取第一个参数组的学习率即可，默认所有组一致）
+            current_lr = optimizer.param_groups[0]['lr']
+            writer.add_scalar("LearningRate", current_lr, epoch)
 
+        # 保存模型
+        model.eval()  # 切换到推理模式
+        model_save_path = os.path.join(config.model_save_path, f"{config.model}_model_epoch_{epoch}.pt")
+        torch.save(model.state_dict(), model_save_path)
         
     logger.info("Training completed.")
-    writer.close()  # 必须添加，否则可能导致日志未完全写入
+    
+    if writer is not None:
+        writer.close()  # 必须添加，否则可能导致日志未完全写入
 
 
 
 if __name__ == "__main__":
     config = Config()
     logging.info("Start training")
-    
-
-    # config.data_path = "data/model_data/train.json"
-    # config.val_path = "data/model_data/val.json"
-    # config.test_path = "data/model_data/test.json"
+    config.data_path = "data/llm_data/processed/pretrain_hq.json"
+    config.val_path = "data/model_data/demo/val.json"
+    config.test_path = "data/model_data/demo/test.json"
     # config.tokenizer_path = "data/"
     # config.vocab_size = 6400
     # config.model = 'llama1'
@@ -235,7 +290,7 @@ if __name__ == "__main__":
     # config.num_heads = 1
     # config.num_layers = 2
     # config.hidden_dim = 10
-    # config.batch_size = 1
+    # config.batch_size = 32
     # config.max_seq_len = 10
     config.num_epochs = 1
     # config.kv_cache = True  

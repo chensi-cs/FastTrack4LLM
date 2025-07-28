@@ -11,7 +11,7 @@ class Config:
         self.num_layers = 8 # number of layers
         self.dropout = 0.0 # dropout rate
         self.d_model = 512 # embedding dimension for one token
-        self.max_seq_len = 512 # max length of input sequence
+        self.max_seq_len = 1024 # max length of input sequence
         self.max_position_len = 32768 # max length of position embedding
         self.vocab_size = 6400 # vocabulary size
         self.position_type = 'rope'
@@ -22,6 +22,12 @@ class Config:
         self.iscausal = True
         self.patience = 5 # early stopping patience
         self.ddp = False
+        self.use_wandb = False # use Weights & Biases for logging 
+        self.use_tensorboard = True # use tensorboard for logging
+        self.log_interval = 100 # log interval for training
+        self.save_interval = 100
+        self.evaluate_val = False
+        self.evaluate_test = False
         
         # self.num_workers = 4
         self.data_path = 'data/model_data/train.json' # train data path
