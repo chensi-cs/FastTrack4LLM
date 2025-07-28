@@ -34,3 +34,44 @@ python -m trainner.train_pretrain
 
 # 6. 训练结束后提示
 echo "训练结束，TensorBoard日志路径: $ROOT_DIR/logs"
+
+# 8.把必要文件存入all_logs
+logdir="$ROOT_DIR/logs"
+checkpoints_dir="$ROOT_DIR/checkpoints"
+saved_models_dir="$ROOT_DIR/saved_models"
+all_logs_dir="$ROOT_DIR/all_logs"
+
+# 确保目录存在
+mkdir -p "$logdir" "$checkpoints_dir" "$saved_models_dir" "$all_logs_dir"
+
+
+ls "$logdir"
+
+
+train_log_name=$(ls "$logdir" | head -n 1)
+
+# 检查是否有日志目录
+if [ -z "$train_log_name" ]; then
+    echo "错误：$logdir 目录为空，没有可处理的日志！"
+    exit 1
+fi
+
+train_log_dir="$logdir/$train_log_name"
+
+echo "日志路径: $train_log_dir"
+
+
+# 复制所有日志子目录到 all_logs
+echo "正在复制日志到 $all_logs_dir"
+cp -r "$train_log_dir" "$all_logs_dir"/ 2>/dev/null || true  # 忽略无匹配项的错误
+
+new_log_dir="$all_logs_dir/$train_log_name"
+
+# 复制目录内容
+echo "正在复制 checkpoints 到 $new_log_dir"
+cp -r "$checkpoints_dir" "$new_log_dir/"
+
+echo "正在复制 saved_models 到 $new_log_dir"
+cp -r "$saved_models_dir" "$new_log_dir/"
+
+echo "操作完成！"
