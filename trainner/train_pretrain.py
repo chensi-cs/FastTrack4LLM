@@ -28,15 +28,17 @@ sys.path.append(project_root)
 print("项目根目录:", project_root)
 print("搜索路径:", sys.path)
 
-from utils.config import Config
+from utils.config import TrainConfig
 from utils.data import PretrainDataset  
-from models.llama_model import Llama1Model
+from models.llama_model import Llama1Model, Llama1ForCausalLM
 from utils.utils import EarlyStopping
 
 
 # 配置日志
-def setup_logger(log_dir='logs'):
+def setup_logger(log_dir):
+    global logger
     logger = logging.getLogger("global_logger")
+    
     logger.setLevel(logging.INFO)
     
     # 确保只添加一次handler（避免重复输出）
@@ -52,24 +54,21 @@ def setup_logger(log_dir='logs'):
         logger.addHandler(console_handler)
         
         # 文件输出
-        os.makedirs(log_dir, exist_ok=True)
-        log_filename = f"{log_dir}/training_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        log_filename = f"{log_dir}/training.log"
         file_handler = logging.FileHandler(log_filename, encoding="utf-8")
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
     
     return logger
 
-# 初始化全局logger
-logger = setup_logger()
+
 
 # 初始化TensorBoard写入器
-def setup_tensorboard():
-    return SummaryWriter(f'logs/train_{datetime.now().strftime("%Y%m%d_%H%M%S")}')
+def setup_tensorboard(log_dir):
+    global writer
+    return SummaryWriter(log_dir)
 
-
-
-def train_one_epoch(model,train_loader,optimizer,device,epoch,config,wandb,writer):
+def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     model.train()
     # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'）。
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
@@ -162,9 +161,14 @@ def train(config):
     os.makedirs(config.model_save_path,exist_ok=True)
     os.makedirs(config.log_dir, exist_ok=True)
     os.makedirs(config.checkpoint_path, exist_ok=True)
-     
+    
+    # 初始化全局logger
+    logger = setup_logger(config.log_dir)
+    global writer
+    global wandb
+    
     if config.use_tensorboard:
-        writer = setup_tensorboard()
+        writer = setup_tensorboard(config.log_dir)
     else:
         writer = None
 
@@ -175,13 +179,15 @@ def train(config):
     # 训练逻辑
     device = config.device
     if config.model == 'llama1':
-        model = Llama1Model(config)
+        model =  Llama1ForCausalLM(config)
     else:
         raise ValueError(f"Model {config.model} not supported")
     
     
     model.to(device)
     logger.info(f"Model {config.model} loaded")
+    logger.info(f"Model infomation: {model}")
+
     # 计算模型总参数量
     total_params = sum(p.numel() for p in model.parameters()) / 1e6
     logger.info(f"模型参数量: {total_params:.3f} M")  # 保留两位小数
@@ -276,13 +282,19 @@ def train(config):
         writer.close()  # 必须添加，否则可能导致日志未完全写入
 
 
-
 if __name__ == "__main__":
-    config = Config()
+    config = TrainConfig()
     logging.info("Start training")
-    config.data_path = "data/llm_data/processed/pretrain_hq.json"
-    config.val_path = "data/model_data/demo/val.json"
-    config.test_path = "data/model_data/demo/test.json"
+    config.data_path = "data/model_data/demo/train.json"
+    # config.data_path = "data/llm_data/processed/pretrain_hq.json"
+    # config.val_path = "data/model_data/demo/val.json"
+    # config.test_path = "data/model_data/demo/test.json"
+    
+    # 创建包含当前时间的日志目录
+    now_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    config.log_dir = os.path.join("logs", f"train_{now_timestamp}")
+    os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
+
     # config.tokenizer_path = "data/"
     # config.vocab_size = 6400
     # config.model = 'llama1'
