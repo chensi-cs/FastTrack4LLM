@@ -139,6 +139,15 @@ def train(config):
     
     model.to(device)
     logger.info(f"Model {config.model} loaded")
+    # 计算模型总参数量
+    total_params = sum(p.numel() for p in model.parameters()) / 1e6
+    logger(f"模型参数量: {total_params:.3f} M")  # 保留两位小数
+
+    # 计算可训练参数量
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad) / 1e6
+    logger(f'LLM可训练参数量: {trainable_params:.3f} M')
+
+
     logger.info(f"config: {config}")
     logger.info("Loading datasets...")
     train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
