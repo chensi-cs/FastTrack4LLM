@@ -79,9 +79,9 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     optimizer.zero_grad()
     epoch_loss_list = []
 
+    start_time = datetime.now()
+
     for batch_idx, batch in enumerate(train_loader):
-        start_time = datetime.now()
-        logger.info(f"Epoch {epoch}, Batch {batch_idx} start at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         x, y, loss_mask = batch
         x = x.to(device)
         y = y.to(device)
@@ -101,14 +101,19 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             optimizer.step()
             optimizer.zero_grad()
 
-        if (batch_idx+1) %  config.log_interval == 0:
+        if (batch_idx+1) %  config.log_interval == 0 or (batch_idx+1) == len(train_loader):
             if wandb:
                 wandb.log({"train_loss": running_loss.item(), "epoch": epoch, "batch_idx": batch_idx})
             if writer:
                 writer.add_scalar('Batch Loss', running_loss.item(), batch_idx)
             logger.info(f"Epoch {epoch}, Batch {batch_idx}, Train Loss: {running_loss.item()}")
+            end_time = datetime.now()
+            start_idx = max(0, batch_idx - 100)  # 确保索引不小于0
+            logger.info(f"Epoch {epoch}, Batch {start_idx}-{batch_idx} duration: {(end_time - start_time).total_seconds() / 60} minutes")
+            start_time = end_time  # 重置开始时间为当前时间
 
-        if (batch_idx+1) %  config.save_interval == 0:
+
+        if (batch_idx+1) %  config.save_interval == 0 or (batch_idx+1) == len(train_loader):
             model.eval()  # 切换到推理模式
             checkpoint = {
                     'epoch': epoch,
@@ -120,15 +125,10 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             checkpoint_saved_path = os.path.join(config.checkpoint_path, f"checkpoint_epoch_{epoch}.pt")
             torch.save(checkpoint, checkpoint_saved_path)
             model.train()  # 切换回训练模式
-        
-            
 
         train_loss += running_loss.item()
         avg_loss = train_loss / (batch_idx+1)
-        end_time = datetime.now()
-        logger.info(f"Epoch {epoch}, Batch {batch_idx} end at {end_time.strftime('%Y-%m-%d %H:%M:%S')}, "
-        logger.info(f"Epoch {epoch}, Batch {batch_idx} duration: {(end_time - start_time).total_seconds() / 60} minutes")
-
+        
     return avg_loss
         
 def evaluate(model,val_loader,device,config):
@@ -286,23 +286,11 @@ def train(config):
 
 
 if __name__ == "__main__":
-    # 初始化全局logger
-    logger = setup_logger(config.log_dir)
-
-    start_time = datetime.now()
-    logger.info(f"Training started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    
     config = TrainConfig()
-    logging.info("Start training")
-    # config.data_path = "data/model_data/demo/train.json"
-    config.data_path = "data/llm_data/processed/pretrain_hq.json"
+    config.data_path = "data/model_data/demo/train.json"
+    # config.data_path = "data/llm_data/processed/pretrain_hq.json"
     config.val_path = "data/model_data/demo/val.json"
     config.test_path = "data/model_data/demo/test.json"
-    
-    # 创建包含当前时间的日志目录
-    now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    config.log_dir = os.path.join("logs", f"train_{now_timestamp}")
-    os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
 
     # config.tokenizer_path = "data/"
     # config.vocab_size = 6400
@@ -317,6 +305,18 @@ if __name__ == "__main__":
     config.num_epochs = 1
     config.evaluate_val = True
 
+    # 创建包含当前时间的日志目录
+    now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    config.log_dir = os.path.join("logs", f"train_{now_timestamp}")
+    os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
+
+
+    # 初始化全局logger
+    logger = setup_logger(config.log_dir)
+
+    start_time = datetime.now()
+    logger.info(f"Training started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logging.info("Start training")
     train(config)
     end_time = datetime.now()
     logger.info(f"Training completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
