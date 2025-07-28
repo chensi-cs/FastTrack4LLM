@@ -1,6 +1,7 @@
 import torch
+from transformers import PretrainedConfig
 
-class Config:
+class TrainConfig(PretrainedConfig):
     def __init__(self):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 32 # batch size
@@ -57,20 +58,31 @@ class Config:
     def __repr__(self):
         return self.__str__()
 
+class ChatConfig():
+    def __init__(self):
+        self.tokenizer_path = 'data/'
+        self.model_path = 'saved_models/'
+        self.model_name = 'llama1'
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.temperature = 0.7
+        self.top_p = 0.9
+        self.max_generate_len = 1024
+        self.chat_mode = 0
 
-class Llama1Config(Config):
+
+class Llama1Config(TrainConfig):
     def __init__(self):
         super().__init__()
         self.model = 'llama1'
         self.num_layers = 8
 
-class Llama2Config(Config):
+class Llama2Config(TrainConfig):
     def __init__(self):
         super().__init__()
         self.model = 'llama2'
         self.num_layers = 12
 
-class Llama3Config(Config):
+class Llama3Config(TrainConfig):
     def __init__(self):
         super().__init__()
         self.model = 'llama3'

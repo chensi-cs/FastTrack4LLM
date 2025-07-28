@@ -1,7 +1,6 @@
 import torch 
 import torch.nn as nn
-import sys
-print("Python path:", sys.path)
+from transformers import PreTrainedModel,GenerationMixin
 from models.position_embed import *
 from models.norm_data import RMSNorm
 from models.attention import  MultiHeadAttention
@@ -66,5 +65,9 @@ class Llama1Model(nn.Module):
         output=self.output_layer(x)
         return output
 
-
-
+class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
+    def __init__(self,config):
+        super().__init__(self.config)
+        self.model=Llama1Model(config)
+    def forward(self,x):
+        return self.model(x)
