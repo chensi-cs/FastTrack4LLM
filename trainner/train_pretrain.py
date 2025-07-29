@@ -88,7 +88,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         loss_mask = loss_mask.to(device)
 
         output = model(x)
-
+        output = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
         running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
         epoch_loss_list.append(running_loss.item())
 
@@ -289,8 +289,8 @@ if __name__ == "__main__":
     config = TrainConfig()
     config.data_path = "data/model_data/demo/train.json"
     # config.data_path = "data/llm_data/processed/pretrain_hq.json"
-    config.val_path = "data/model_data/demo/val.json"
-    config.test_path = "data/model_data/demo/test.json"
+    # config.val_path = "data/model_data/demo/val.json"
+    # config.test_path = "data/model_data/demo/test.json"
 
     # config.tokenizer_path = "data/"
     # config.vocab_size = 6400
@@ -303,12 +303,13 @@ if __name__ == "__main__":
     # config.kv_cache = True  
     config.batch_size = 64
     config.num_epochs = 1
-    config.evaluate_val = True
+    config.evaluate_val = False
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     config.log_dir = os.path.join("logs", f"train_{now_timestamp}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
+
 
 
     # 初始化全局logger

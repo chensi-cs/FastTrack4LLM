@@ -60,8 +60,8 @@ class MultiHeadAttention(nn.Module):
 
         # 应用 rotary positional embedding
         if self.position_type == "rope":
-            self.freqs_cos = self.freqs_cos[:seq_len]
-            self.freqs_sin = self.freqs_sin[:seq_len]
+            # self.freqs_cos = self.freqs_cos[:seq_len]
+            # self.freqs_sin = self.freqs_sin[:seq_len]
             q, k = apply_rotary_pos_emb(q,k,self.freqs_cos,self.freqs_sin)
         # print(" after apply_rotary_pos_emb:")
         # print("q shape: ",q.shape)

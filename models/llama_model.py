@@ -6,6 +6,7 @@ from models.norm_data import RMSNorm
 from models.attention import  MultiHeadAttention
 from models.feed_forward import FeedForward
 from typing import Optional, Tuple, List, Union
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
 class Llama1Block(nn.Module):
     def __init__(self,layer_id,config,freqs_cos,freqs_sin):
@@ -74,4 +75,11 @@ class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
     def forward(self,
         input_ids: Optional[torch.Tensor] = None,
         **kwargs):
-        return self.model(input_ids)
+        logits = self.model(input_ids)
+        out = CausalLMOutputWithPast (
+            logits = logits,            # 预测的下一个 token 的概率分布（必需字段）
+            past_key_values = None,     # 用于缓存注意力机制中的键值对（KV cache），加速后续生成步骤（可选字段）
+            hidden_states = None,       # 隐藏状态（中间层输出），用于进一步分析或调试（可选字段）
+            attentions = None           # 注意力权重（可选字段，通常用于可视化或分析模型注意力分布
+        )
+        return out

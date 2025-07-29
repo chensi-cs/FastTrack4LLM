@@ -93,9 +93,14 @@ def apply_rotary_pos_emb(q,k,cos,sin):
         # print("res: ",res)
         return torch.cat([-x2,x1],dim=-1)
     
-
+    # print("------------------------apply_rotary_pos_emb------------------------")
+    batch_size, seq_len, num_heads, head_dim = q.shape
+    cos = cos[:seq_len]  # 截取前 seq_len 个位置的余弦值
+    sin = sin[:seq_len]  # 截取前 seq_len 个位置的正弦值
     # print("cos shape: ",cos.shape)
     # print("sin shape: ",sin.shape)
+    # print("q shape: ",q.shape)
+    # print("k shape: ",k.shape)
     # print("cos: ",cos)
     # print("sin: ",sin)
     # 调整cos和sin的形状以匹配q和k的广播需求
@@ -116,6 +121,7 @@ def apply_rotary_pos_emb(q,k,cos,sin):
     # print("k_embed shape: ",k_embed.shape)
     # print("q_embed: ",q_embed)
     # print("k_embed: ",k_embed)
+    # print("------------------------apply_rotary_pos_emb end------------------------")
     return q_embed,k_embed
     
 
