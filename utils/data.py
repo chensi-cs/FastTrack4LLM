@@ -34,7 +34,8 @@ class PretrainDataset(Dataset):
         # torch.Tensor.squeeze() 用于移除张量中所有尺寸为 1 的维度，如形状 [1, max_length] → [max_length]（移除了尺寸为 1 的 batch 维度）。
         input_ids = encoding.input_ids.squeeze()
         loss_mask = ( input_ids != self.tokenizer.pad_token_id)
-        x = torch.tensor(input_ids[:-1],dtype=torch.long)
-        y = torch.tensor(input_ids[1:],dtype=torch.long)
-        loss_mask = torch.tensor(loss_mask[1:],dtype=torch.long)
+        x = input_ids[:-1].clone().detach()
+        y = input_ids[1:].clone().detach()
+        loss_mask = loss_mask[1:].clone().detach()
+
         return x,y,loss_mask

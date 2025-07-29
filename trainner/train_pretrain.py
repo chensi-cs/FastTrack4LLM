@@ -77,8 +77,9 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     criterion =  nn.CrossEntropyLoss(ignore_index=0)
     train_loss = 0.0
     avg_loss = 0.0
-    
-    accumulation_steps = 10
+
+    accumulation_steps = config.accumulation_steps  # 梯度累积步数
+
     optimizer.zero_grad()
     epoch_loss_list = []
 
@@ -151,11 +152,11 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
                 wandb.log({"train_loss": running_loss.item(), "epoch": epoch, "batch_idx": batch_idx})
             if writer:
                 writer.add_scalar('Batch Loss', running_loss.item(), batch_idx)
-            logger.info(f"Epoch {epoch}, Batch {batch_idx}, Train Loss: {running_loss.item()}")
-            end_time = datetime.now()
-            start_idx = max(0, batch_idx - 100)  # 确保索引不小于0
-            logger.info(f"Epoch {epoch}, Batch {start_idx}-{batch_idx} duration: {(end_time - start_time).total_seconds() / 60} minutes")
-            start_time = end_time  # 重置开始时间为当前时间
+            logger.info(f"Epoch [{epoch}/{config.num_epochs}] ({batch_idx+1}/{iter_per_epoch}) Train Loss: {running_loss.item():.5f} LR: {lr:.12f} ")
+            
+            if (batch_idx+1) ==  config.log_interval :
+                end_time = datetime.now()
+                logger.info(f"Epoch [{epoch}/{config.num_epochs}] Batch {100} duration: {(end_time - start_time).total_seconds() / 60} minutes")
 
 
         if (batch_idx+1) %  config.save_interval == 0 or (batch_idx+1) == len(train_loader):
@@ -246,7 +247,14 @@ def train(config):
     logger.info(f"config: {config}")
     logger.info("Loading datasets...")
     train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
-    train_loader = DataLoader(train_dataset,batch_size=config.batch_size, shuffle=True,num_workers=4)
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_workers=4,
+        pin_memory = True, # 内存锁页
+        drop_last=True  # 丢弃最后一个不完整的batch
+    )
     logger.info(f"Number of training samples: {len(train_dataset)}")
 
     if config.evaluate_val:
@@ -352,6 +360,9 @@ if __name__ == "__main__":
     # config.kv_cache = True  
     config.batch_size = 64
     config.num_epochs = 1
+    
+    # 根据batch_size和accumulation_steps计算学习率
+    config.lr = config.base_lr * ( config.batch_size * config.accumulation_steps / config.base_batch_size)  
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

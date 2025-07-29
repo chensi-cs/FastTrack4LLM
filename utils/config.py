@@ -6,8 +6,10 @@ class TrainConfig(PretrainedConfig):
         super().__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 32 # batch size
+        self.base_batch_size = 32 # base batch size
         self.num_epochs = 2 # number of epochs
         self.lr = 5e-4 # learning rate
+        self.base_lr = 5e-4 # base learning rate
         self.num_heads = 8 # number of heads for multi-head attention
         self.hidden_dim = 1024 # hidden dimension for feedforward network
         self.num_layers = 8 # number of layers
@@ -16,6 +18,7 @@ class TrainConfig(PretrainedConfig):
         self.max_seq_len = 1024 # max length of input sequence
         self.max_position_len = 32768 # max length of position embedding
         self.vocab_size = 6400 # vocabulary size
+        self.accumulation_steps = 8 # gradient accumulation steps
         self.position_type = 'rope'
         self.activation = 'silu'
         self.kv_cache = False
