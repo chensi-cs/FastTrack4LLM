@@ -93,6 +93,8 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         loss_mask = loss_mask.to(device)
         
         lr = get_lr((epoch-1)* iter_per_epoch + batch_idx, config.num_epochs * iter_per_epoch , config.lr )
+        writer.add_scalar("LearningRate", lr, batch_idx)
+
         # 遍历优化器中的所有参数组，然后把每个参数组的学习率（'lr'）都设定为新计算得出的值（lr）
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
@@ -133,6 +135,14 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
 
             # 梯度清零,set_to_none=True会将梯度设置为 None，而不是将其设置为 0,节省内存
             optimizer.zero_grad(set_to_none=True)
+
+            # 记录参数分布
+            for name, param in model.named_parameters():
+                # 记录参数值分布
+                writer.add_histogram(f"Parameters/{name}", param, batch_idx)  # 参数值的直方图
+                # 记录参数梯度分布（仅训练阶段有梯度）
+                if param.grad is not None:
+                    writer.add_histogram(f"Gradients/{name}", param.grad, batch_idx)
 
         if (batch_idx+1) %  config.log_interval == 0 or (batch_idx+1) == len(train_loader):
             if wandb:
@@ -262,65 +272,64 @@ def train(config):
         scaler = GradScaler()
     else :
         scaler = None
-    for epoch in range(1,1+config.num_epochs):
-        train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
-        history['train_loss'].append(train_loss)
-        logger.info(f"Epoch {epoch}, average train loss: {train_loss}")
+
+    logger.info(f"Model parameters:")
+    for name, param in model.named_parameters():
+        logger.info(f"{name}: {param.size()}")
+    try:
+        for epoch in range(1,1+config.num_epochs):
+            train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
+            history['train_loss'].append(train_loss)
+            logger.info(f"Epoch {epoch}, average train loss: {train_loss}")
+            
+            plot_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
+            np.save(os.path.join(config.log_dir, f'{epoch}_training_history.npy'), epoch_loss_list)
+
+            if config.evaluate_val:
+                val_loss = evaluate(model,val_loader,device,config)
+                history['val_loss'].append(val_loss)
+                logger.info(f"Epoch {epoch}, average val loss: {val_loss}")
+
+                # 记录验证损失
+                if writer is not None:
+                    writer.add_scalar("Loss/Validation", val_loss, epoch)
+
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    checkpoint = {
+                        'epoch': epoch,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'val_loss': val_loss,
+                        'train_loss': train_loss,
+                    }
+                    checkpoint_saved_path = os.path.join(config.checkpoint_path, f"checkpoint_epoch_{epoch}.pt")
+                    torch.save(checkpoint, checkpoint_saved_path)
+                    logger.info(f"New best model saved at {config.checkpoint_path} with val loss: {val_loss}")
+                if early_stopping(val_loss):
+                    logger.info(f"Early stopping at epoch {epoch}")
+                    break
+
+            if writer is not None:
+                writer.add_scalar("Loss/Train", train_loss, epoch)  # 标签路径建议分类，方便TB中分组查看
+
+            # 保存模型
+            model.eval()  # 切换到推理模式
+            model_save_path = os.path.join(config.model_save_path, f"{config.model}_model_epoch_{epoch}.pt")
+            torch.save(model.state_dict(), model_save_path)
+            logger.info("-"*100)
         
-        plot_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
-        np.save(os.path.join(config.log_dir, f'{epoch}_training_history.npy'), epoch_loss_list)
-        
-
-        if config.evaluate_val:
-            val_loss = evaluate(model,val_loader,device,config)
-            history['val_loss'].append(val_loss)
-            logger.info(f"Epoch {epoch}, average val loss: {val_loss}")
-
-            # 记录验证损失
-            writer.add_scalar("Loss/Validation", val_loss, epoch)
-
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                checkpoint = {
-                    'epoch': epoch,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'val_loss': val_loss,
-                    'train_loss': train_loss,
-                }
-                checkpoint_saved_path = os.path.join(config.checkpoint_path, f"checkpoint_epoch_{epoch}.pt")
-                torch.save(checkpoint, checkpoint_saved_path)
-                logger.info(f"New best model saved at {config.checkpoint_path} with val loss: {val_loss}")
-            if early_stopping(val_loss):
-                logger.info(f"Early stopping at epoch {epoch}")
-                break
-
-        if writer is not None:
-            # 记录训练损失
-            writer.add_scalar("Loss/Train", train_loss, epoch)  # 标签路径建议分类，方便TB中分组查看
-
-            # 记录参数分布
-            for name, param in model.named_parameters():
-                # 记录参数值分布
-                writer.add_histogram(f"Parameters/{name}", param, epoch)  # 参数值的直方图
-                # 记录参数梯度分布（仅训练阶段有梯度）
-                if param.grad is not None:
-                    writer.add_histogram(f"Gradients/{name}", param.grad, epoch)
-
-            # 记录当前学习率（取第一个参数组的学习率即可，默认所有组一致）
-            current_lr = optimizer.param_groups[0]['lr']
-            writer.add_scalar("LearningRate", current_lr, epoch)
-
+        logger.info("Training completed.")
+    except KeyboardInterrupt:
+        logger.info("Training interrupted by user.")            
+    finally:
         # 保存模型
         model.eval()  # 切换到推理模式
-        model_save_path = os.path.join(config.model_save_path, f"{config.model}_model_epoch_{epoch}.pt")
+        model_save_path = os.path.join(config.model_save_path, f"{config.model}_model.pt")
         torch.save(model.state_dict(), model_save_path)
-        logger.info("-"*100)
-        
-    logger.info("Training completed.")
-    
-    if writer is not None:
-        writer.close()  # 必须添加，否则可能导致日志未完全写入
+
+        if writer is not None:
+            writer.close()
 
 
 if __name__ == "__main__":
@@ -341,13 +350,11 @@ if __name__ == "__main__":
     # config.kv_cache = True  
     config.batch_size = 64
     config.num_epochs = 1
-    config.evaluate_val = False
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     config.log_dir = os.path.join("logs", f"train_{now_timestamp}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
-
 
 
     # 初始化全局logger
