@@ -23,6 +23,7 @@ class TrainConfig(PretrainedConfig):
         self.optimizer = 'adamw'
         self.iscausal = True
         self.patience = 5 # early stopping patience
+        self.grad_clip = 1.0
         self.ddp = False
         self.use_wandb = False # use Weights & Biases for logging 
         self.use_tensorboard = True # use tensorboard for logging
@@ -31,6 +32,7 @@ class TrainConfig(PretrainedConfig):
         self.evaluate_val = False
         self.evaluate_test = False
         self.use_amp = True
+
         
         # self.num_workers = 4
         self.data_path = 'data/model_data/train.json' # train data path

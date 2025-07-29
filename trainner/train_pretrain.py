@@ -111,12 +111,17 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             if config.use_amp:
                 # 将已经缩放的梯度 反向缩放
                 scaler.unscale_(optimizer)
+                # 使用clip_grad_norm_()方法来裁剪梯度
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = config.grad_clip)
                 # 使用scaler.step()方法来更新模型参数
                 scaler.step(optimizer)
                 # 动态更新缩放因子
                 scaler.update()
             else:
+                # 使用clip_grad_norm_()方法来裁剪梯度
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = config.grad_clip)
                 optimizer.step()
+                
             # 梯度清零,set_to_none=True会将梯度设置为 None，而不是将其设置为 0,节省内存
             optimizer.zero_grad(set_to_none=True)
 
