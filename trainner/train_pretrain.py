@@ -13,6 +13,7 @@ import logging
 import wandb
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+from torch.cuda.amp import autocast, GradScaler
 
 # 获取当前脚本的绝对路径
 script_path = Path(__file__).resolve()  # 例如：/Users/cs/cs-work/llm_learning/trainner/train_pretrain.py
@@ -86,8 +87,12 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         x = x.to(device)
         y = y.to(device)
         loss_mask = loss_mask.to(device)
-
-        output = model(x)
+        
+        if config.use_amp:
+            with autocast():
+                output = model(x)    
+        else:
+            output = model(x)
         output = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
         running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
         epoch_loss_list.append(running_loss.item())
@@ -95,11 +100,25 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         # 梯度累积的操作之一
         loss = running_loss / accumulation_steps 
 
-        loss.backward()
+        if config.use_amp:
+            #  使用scaler.scale()方法来缩放损失值
+            #  使用.backward()方法来计算梯度
+            scaler.scale(loss).backward()
+        else :
+            loss.backward() 
 
         if (batch_idx+1) % accumulation_steps == 0:
-            optimizer.step()
-            optimizer.zero_grad()
+            if config.use_amp:
+                # 将已经缩放的梯度 反向缩放
+                scaler.unscale_(optimizer)
+                # 使用scaler.step()方法来更新模型参数
+                scaler.step(optimizer)
+                # 动态更新缩放因子
+                scaler.update()
+            else:
+                optimizer.step()
+            # 梯度清零,set_to_none=True会将梯度设置为 None，而不是将其设置为 0,节省内存
+            optimizer.zero_grad(set_to_none=True)
 
         if (batch_idx+1) %  config.log_interval == 0 or (batch_idx+1) == len(train_loader):
             if wandb:
@@ -223,7 +242,12 @@ def train(config):
     history = {"train_loss": [], "val_loss": []}
     best_val_loss = float('inf')
     early_stopping = EarlyStopping(config.patience)
-
+    
+    global scaler
+    if config.use_amp:
+        scaler = GradScaler()
+    else :
+        scaler = None
     for epoch in range(1,1+config.num_epochs):
         train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
         history['train_loss'].append(train_loss)

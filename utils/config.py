@@ -30,6 +30,7 @@ class TrainConfig(PretrainedConfig):
         self.save_interval = 100
         self.evaluate_val = False
         self.evaluate_test = False
+        self.use_amp = True
         
         # self.num_workers = 4
         self.data_path = 'data/model_data/train.json' # train data path
