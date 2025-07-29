@@ -63,10 +63,12 @@ def setup_logger(log_dir):
     
     return logger
 
-
 # 初始化TensorBoard写入器
 def setup_tensorboard(log_dir):
     return SummaryWriter(log_dir)
+
+def get_lr(current_step,total_step,lr):
+    return lr / 10 + 0.5 * lr * ( 1+ np.cos(np.pi * current_step / total_step))
 
 def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     model.train()
@@ -80,6 +82,8 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     optimizer.zero_grad()
     epoch_loss_list = []
 
+    iter_per_epoch = len(train_loader)
+
     start_time = datetime.now()
 
     for batch_idx, batch in enumerate(train_loader):
@@ -88,6 +92,11 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         y = y.to(device)
         loss_mask = loss_mask.to(device)
         
+        lr = get_lr((epoch-1)* iter_per_epoch + batch_idx, config.num_epochs * iter_per_epoch , config.lr )
+        # 遍历优化器中的所有参数组，然后把每个参数组的学习率（'lr'）都设定为新计算得出的值（lr）
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+
         if config.use_amp:
             with autocast():
                 output = model(x)    
@@ -121,7 +130,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
                 # 使用clip_grad_norm_()方法来裁剪梯度
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = config.grad_clip)
                 optimizer.step()
-                
+
             # 梯度清零,set_to_none=True会将梯度设置为 None，而不是将其设置为 0,节省内存
             optimizer.zero_grad(set_to_none=True)
 
