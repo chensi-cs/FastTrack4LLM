@@ -5,7 +5,7 @@ from models.position_embed import *
 from models.norm_data import RMSNorm
 from models.attention import  MultiHeadAttention
 from models.feed_forward import FeedForward
-
+from typing import Optional, Tuple, List, Union
 
 class Llama1Block(nn.Module):
     def __init__(self,layer_id,config,freqs_cos,freqs_sin):
@@ -55,9 +55,10 @@ class Llama1Model(nn.Module):
         self.norm = RMSNorm(dim=self.d_model)
         self.output_layer=nn.Linear(self.d_model,self.vocab_size)
     
-    def forward(self,x):
+    def forward(self,
+        input_ids: Optional[torch.Tensor] = None):
         past_k,past_v=None,None
-        x=self.token_embedding(x)
+        x=self.token_embedding(input_ids)
         for layer in self.layers:
             x,past_k,past_v=layer(x,past_k,past_v)
         # 计算output之前的归一化
@@ -70,5 +71,7 @@ class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
         self.config = config
         super().__init__(self.config)
         self.model=Llama1Model(config)
-    def forward(self,x):
-        return self.model(x)
+    def forward(self,
+        input_ids: Optional[torch.Tensor] = None,
+        **kwargs):
+        return self.model(input_ids)

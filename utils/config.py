@@ -3,6 +3,7 @@ from transformers import PretrainedConfig
 
 class TrainConfig(PretrainedConfig):
     def __init__(self):
+        super().__init__()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 32 # batch size
         self.num_epochs = 2 # number of epochs
@@ -58,16 +59,14 @@ class TrainConfig(PretrainedConfig):
     def __repr__(self):
         return self.__str__()
 
-class ChatConfig():
+class ChatConfig(TrainConfig):
     def __init__(self):
-        self.tokenizer_path = 'data/'
-        self.model_path = 'saved_models/'
-        self.model_name = 'llama1'
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        super().__init__()
         self.temperature = 0.7
         self.top_p = 0.9
         self.max_generate_len = 1024
         self.chat_mode = 0
+
 
 
 class Llama1Config(TrainConfig):
