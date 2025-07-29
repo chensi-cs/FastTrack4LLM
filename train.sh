@@ -12,6 +12,7 @@ echo "清理旧目录..."
 rm -rf "$ROOT_DIR/logs"        # 强制删除日志目录
 rm -rf "$ROOT_DIR/checkpoints" # 强制删除检查点目录
 rm -rf "$ROOT_DIR/saved_models" # 强制删除模型保存目录
+rm -rf "$ROOT_DIR/wandb"        # 强制删除wandb日志目录
 
 # 2. 重新创建目录（确保权限正确）
 echo "创建新目录..."

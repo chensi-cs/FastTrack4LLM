@@ -118,6 +118,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         else :
             loss.backward() 
 
+
         if (batch_idx+1) % accumulation_steps == 0:
             if config.use_amp:
                 # 将已经缩放的梯度 反向缩放
@@ -133,16 +134,17 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = config.grad_clip)
                 optimizer.step()
 
+            if writer is not None:
+                # 记录参数分布
+                for name, param in model.named_parameters():
+                    # 记录参数值分布
+                    writer.add_histogram(f"Parameters/{name}", param, batch_idx)  # 参数值的直方图
+                    # 记录参数梯度分布（仅训练阶段有梯度）
+                    if param.grad is not None and torch.isfinite(param.grad).any():
+                        writer.add_histogram(f"Gradients/{name}", param.grad, batch_idx)
+                        
             # 梯度清零,set_to_none=True会将梯度设置为 None，而不是将其设置为 0,节省内存
             optimizer.zero_grad(set_to_none=True)
-
-            # 记录参数分布
-            for name, param in model.named_parameters():
-                # 记录参数值分布
-                writer.add_histogram(f"Parameters/{name}", param, batch_idx)  # 参数值的直方图
-                # 记录参数梯度分布（仅训练阶段有梯度）
-                if param.grad is not None:
-                    writer.add_histogram(f"Gradients/{name}", param.grad, batch_idx)
 
         if (batch_idx+1) %  config.log_interval == 0 or (batch_idx+1) == len(train_loader):
             if wandb:
@@ -244,16 +246,16 @@ def train(config):
     logger.info(f"config: {config}")
     logger.info("Loading datasets...")
     train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
-    train_loader = DataLoader(train_dataset,batch_size=config.batch_size, shuffle=True,num_workers=0)
+    train_loader = DataLoader(train_dataset,batch_size=config.batch_size, shuffle=True,num_workers=4)
     logger.info(f"Number of training samples: {len(train_dataset)}")
 
     if config.evaluate_val:
         val_dataset = PretrainDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
-        val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
+        val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=4)
         logger.info(f"Number of validation samples: {len(val_dataset)}")
     if config.evaluate_test:
         test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
-        test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=0)
+        test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=4)
         logger.info(f"Number of test samples: {len(test_dataset)}")
 
 
@@ -334,8 +336,8 @@ def train(config):
 
 if __name__ == "__main__":
     config = TrainConfig()
-    config.data_path = "data/model_data/demo/train.json"
-    # config.data_path = "data/llm_data/processed/pretrain_hq.json"
+    # config.data_path = "data/model_data/demo/train.json"
+    config.data_path = "data/llm_data/processed/pretrain_hq.json"
     # config.val_path = "data/model_data/demo/val.json"
     # config.test_path = "data/model_data/demo/test.json"
 
