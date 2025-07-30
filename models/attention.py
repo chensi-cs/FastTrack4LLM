@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 from  models.position_embed import apply_rotary_pos_emb
+import torch.nn.functional as F
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, config,freqs_cos = None ,freqs_sin = None):
@@ -23,6 +24,9 @@ class MultiHeadAttention(nn.Module):
         self.position_type = config.position_type
         self.iscausal = config.iscausal
         self.kv_cache = config.kv_cache
+        self.istrain = config.istrain
+        self.flash_att = config.flash_att and hasattr(torch.nn.functional,'scaled_dot_product_attention')
+
         if self.position_type == "rope":
             self.freqs_cos = freqs_cos
             self.freqs_sin = freqs_sin
@@ -100,35 +104,42 @@ class MultiHeadAttention(nn.Module):
                 # print("k :",k)
                 # print("v shape: ",v.shape)
                 # print("v :",v)
-        
-        # 计算注意力分数
-        # [batch, num_heads, seq_len, seq_len]
-        attn_scores = torch.matmul(q,k.transpose(-2,-1))/self.scale
-        # print("attn_scores shape: ",attn_scores.shape)
-        # print("attn_scores :",attn_scores)
 
-        if self.iscausal:
-            batch_size, num_heads, seq_len, _= attn_scores.shape
-            mask = torch.triu(torch.ones(seq_len,seq_len),diagonal=1)
-            mask = mask.to(attn_scores.device)
-            attn_scores =  attn_scores.masked_fill(mask==1,float('-inf'))
-        # print("after causal mask:")
-        # print("attn_scores shape: ",attn_scores.shape)
-        # print("attn_scores :",attn_scores)
+        if  self.flash_att:
+            print("apply flash attention")
+            dropout_p = self.dropout if self.istrain else 0.0
+            attn_output = F.scaled_dot_product_attention(q,k,v,dropout_p=dropout_p,is_causal=self.iscausal,attn_mask=None)
+            print("attn_output shape: ",attn_output.shape)
+        else:
+            # 计算注意力分数
+            # [batch, num_heads, seq_len, seq_len]
+            attn_scores = torch.matmul(q,k.transpose(-2,-1))/self.scale
+            # print("attn_scores shape: ",attn_scores.shape)
+            # print("attn_scores :",attn_scores)
+            # 使用flash attention
+            
+            if self.iscausal:
+                batch_size, num_heads, seq_len, _= attn_scores.shape
+                mask = torch.triu(torch.ones(seq_len,seq_len),diagonal=1)
+                mask = mask.to(attn_scores.device)
+                attn_scores =  attn_scores.masked_fill(mask==1,float('-inf'))
+                # print("after causal mask:")
+                # print("attn_scores shape: ",attn_scores.shape)
+                # print("attn_scores :",attn_scores)
 
-        attn_weights = torch.softmax(attn_scores,dim=-1)
-        # print("attn_weights shape: ",attn_weights.shape)
-        # print("attn_weights :",attn_weights)
+            attn_weights = torch.softmax(attn_scores,dim=-1)
+            # print("attn_weights shape: ",attn_weights.shape)
+            # print("attn_weights :",attn_weights)
 
-        attn_weights = self.attn_dropout(attn_weights)
-        # print("after attn_dropout:")
-        # print("attn_weights shape: ",attn_weights.shape)
-        # print("attn_weights :",attn_weights)
-        # 计算注意力输出
-        # [batch, num_heads, seq_len, head_dim]
-        attn_output = torch.matmul(attn_weights,v)
-        # print("attn_output shape: ",attn_output.shape)
-        # print("attn_output :",attn_output)
+            attn_weights = self.attn_dropout(attn_weights)
+            # print("after attn_dropout:")
+            # print("attn_weights shape: ",attn_weights.shape)
+            # print("attn_weights :",attn_weights)
+            # 计算注意力输出
+            # [batch, num_heads, seq_len, head_dim]
+            attn_output = torch.matmul(attn_weights,v)
+            # print("attn_output shape: ",attn_output.shape)
+            # print("attn_output :",attn_output)
 
         # [batch, num_heads, seq_len, head_dim] > [batch, seq_len, num_heads, head_dim] > [batch, seq_len, d_model]
         attn_output = attn_output.transpose(1,2).contiguous().view(batch_size,seq_len,self.d_model)

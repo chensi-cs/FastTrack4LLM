@@ -22,6 +22,7 @@ class TrainConfig(PretrainedConfig):
         self.position_type = 'rope'
         self.activation = 'silu'
         self.kv_cache = False
+        self.flash_att = False
         self.model = 'llama1'
         self.optimizer = 'adamw'
         self.iscausal = True
@@ -35,6 +36,7 @@ class TrainConfig(PretrainedConfig):
         self.evaluate_val = False
         self.evaluate_test = False
         self.use_amp = True
+        self.istrain = True
 
         
         # self.num_workers = 4
