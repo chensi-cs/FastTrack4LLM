@@ -32,7 +32,7 @@ class MultiHeadAttention(nn.Module):
             self.freqs_sin = freqs_sin
         
 
-    def forward(self,x,cache_k=None,cache_v=None):
+    def forward(self,x,cache_k=None,cache_v=None,attention_mask=None):
         batch_size, seq_len , _ = x.shape
 
         # print("x shape: ",x.shape)
@@ -105,10 +105,14 @@ class MultiHeadAttention(nn.Module):
                 # print("v shape: ",v.shape)
                 # print("v :",v)
 
+        if attention_mask is not None:
+            attenion_mask = attenion_mask.view(batch_size,1,1,-1)
+            attenion_mask = attention_mask.expand(batch_size,self.num_heads,seq_len,-1)
+            
         if  self.flash_att:
             # print("apply flash attention")
             dropout_p = self.dropout if self.istrain else 0.0
-            attn_output = F.scaled_dot_product_attention(q,k,v,dropout_p=dropout_p,is_causal=self.iscausal,attn_mask=None)
+            attn_output = F.scaled_dot_product_attention(q,k,v,dropout_p=dropout_p,is_causal=self.iscausal,attn_mask=attenion_mask)
 
         else:
             # 计算注意力分数
@@ -126,6 +130,8 @@ class MultiHeadAttention(nn.Module):
                 # print("after causal mask:")
                 # print("attn_scores shape: ",attn_scores.shape)
                 # print("attn_scores :",attn_scores)
+            if attention_mask is not None:
+                attn_scores = attn_scores.masked_fill(attention_mask==0,float('-inf'))
 
             attn_weights = torch.softmax(attn_scores,dim=-1)
             # print("attn_weights shape: ",attn_weights.shape)

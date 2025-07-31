@@ -25,11 +25,11 @@ class Llama1Block(nn.Module):
         
 
         
-    def forward(self,x,past_k,past_v):
+    def forward(self,x,past_k,past_v,attention_mask):
         # Pre-normalization + RMSNorm
         x=self.norm(x)
         # 注意力机制
-        attn_out,past_k,past_v=self.attention(x,past_k,past_v)
+        attn_out,past_k,past_v=self.attention(x,past_k,past_v,attention_mask)
         # 残差连接
         x=x+attn_out
         # Pre-normalization + RMSNorm
@@ -57,11 +57,16 @@ class Llama1Model(nn.Module):
         self.output_layer=nn.Linear(self.d_model,self.vocab_size)
     
     def forward(self,
-        input_ids: Optional[torch.Tensor] = None):
+            input_ids: Optional[torch.Tensor] = None,
+            attention_mask : Optional[torch.Tensor] = None
+            ):
         past_k,past_v=None,None
         x=self.token_embedding(input_ids)
         for layer in self.layers:
-            x,past_k,past_v=layer(x,past_k,past_v)
+            x,past_k,past_v=layer(x = x,
+                                  past_k = past_k,
+                                  past_v = past_v,
+                                  attention_mask = attention_mask)
         # 计算output之前的归一化
         x=self.norm(x)
         output=self.output_layer(x)
@@ -74,8 +79,12 @@ class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
         self.model=Llama1Model(config)
     def forward(self,
         input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
         **kwargs):
-        logits = self.model(input_ids)
+        logits = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask
+        )
         out = CausalLMOutputWithPast (
             logits = logits,            # 预测的下一个 token 的概率分布（必需字段）
             past_key_values = None,     # 用于缓存注意力机制中的键值对（KV cache），加速后续生成步骤（可选字段）
