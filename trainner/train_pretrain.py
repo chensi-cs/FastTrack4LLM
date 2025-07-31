@@ -11,9 +11,13 @@ import sys
 from pathlib import Path
 import logging
 import wandb
+import random
 import numpy as np
+import argparse
+
 from torch.utils.tensorboard import SummaryWriter
 from torch.cuda.amp import autocast, GradScaler
+
 
 # 获取当前脚本的绝对路径
 script_path = Path(__file__).resolve()  # 例如：/Users/cs/cs-work/llm_learning/trainner/train_pretrain.py
@@ -206,6 +210,14 @@ def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
     plt.savefig(save_path)
     plt.close()
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
 
 def train(config):
     os.makedirs(config.model_save_path,exist_ok=True)
@@ -251,19 +263,21 @@ def train(config):
         train_dataset, 
         batch_size=config.batch_size,
         shuffle=True,
-        num_workers=4,
+        num_workers=16,
         pin_memory = True, # 内存锁页
-        drop_last=True  # 丢弃最后一个不完整的batch
+        drop_last=True,  # 丢弃最后一个不完整的batch
+        prefetch_factor=2,  # 用来控制每个工作进程预先加载的样本数量
+        persistent_workers=True  # 保持工作进程持续存在
     )
     logger.info(f"Number of training samples: {len(train_dataset)}")
 
     if config.evaluate_val:
         val_dataset = PretrainDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
-        val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=4)
+        val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=16)
         logger.info(f"Number of validation samples: {len(val_dataset)}")
     if config.evaluate_test:
         test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
-        test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=4)
+        test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=16)
         logger.info(f"Number of test samples: {len(test_dataset)}")
 
 
@@ -343,6 +357,15 @@ def train(config):
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Model Pretraining")
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--num_epochs", type=int, default=2)
+    parser.add_argument("--hidden_dim", type=int, default=1024)
+    parser.add_argument("--accumulation_steps", type=int, default=8)
+    
+    args = parser.parse_args()
+
+    set_seed(42)
     config = TrainConfig()
     # config.data_path = "data/model_data/demo/train.json"
     config.data_path = "data/llm_data/processed/pretrain_hq.json"
@@ -358,11 +381,14 @@ if __name__ == "__main__":
     # config.hidden_dim = 10
     # config.max_seq_len = 10
     # config.kv_cache = True  
-    config.batch_size = 64
-    config.num_epochs = 1
+    config.batch_size = args.batch_size
+    config.num_epochs = args.num_epochs
+    config.hidden_dim = args.hidden_dim
+    config.flash_att = True
+    config.accumulation_steps = args.accumulation_steps
     
     # 根据batch_size和accumulation_steps计算学习率
-    config.lr = config.base_lr * ( config.batch_size * config.accumulation_steps / config.base_batch_size)  
+    # config.lr = config.base_lr * ( config.batch_size * config.accumulation_steps / config.base_batch_size)  
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -88,7 +88,7 @@ class MultiHeadAttention(nn.Module):
 
         # 应用 kv cache
         if  self.kv_cache:
-            print("apply kv cache")
+            # print("apply kv cache")
             # 如果启用了kv_cache，则将当前k和v与缓存的k和v拼接
             if cache_k is not None and cache_v is not None:
                 # print("cache_k is not None and cache_v is not None")
@@ -106,10 +106,10 @@ class MultiHeadAttention(nn.Module):
                 # print("v :",v)
 
         if  self.flash_att:
-            print("apply flash attention")
+            # print("apply flash attention")
             dropout_p = self.dropout if self.istrain else 0.0
             attn_output = F.scaled_dot_product_attention(q,k,v,dropout_p=dropout_p,is_causal=self.iscausal,attn_mask=None)
-            print("attn_output shape: ",attn_output.shape)
+
         else:
             # 计算注意力分数
             # [batch, num_heads, seq_len, seq_len]

@@ -15,7 +15,7 @@ class TrainConfig(PretrainedConfig):
         self.num_layers = 8 # number of layers
         self.dropout = 0.0 # dropout rate
         self.d_model = 512 # embedding dimension for one token
-        self.max_seq_len = 1024 # max length of input sequence
+        self.max_seq_len = 512 # max length of input sequence
         self.max_position_len = 32768 # max length of position embedding
         self.vocab_size = 6400 # vocabulary size
         self.accumulation_steps = 8 # gradient accumulation steps
@@ -61,7 +61,7 @@ class TrainConfig(PretrainedConfig):
         # 自定义打印格式，方便查看配置信息
         return f"Config(device={self.device}, batch_size={self.batch_size}, num_epochs={self.num_epochs}, learning_rate={self.lr}, " \
                f"data_path={self.data_path}, tokenizer_path={self.tokenizer_path}, model_save_path={self.model_save_path}, log_dir={self.log_dir}, " \
-               f"checkpoint_path={self.checkpoint_path}, d_model={self.d_model}, max_seq_len={self.max_seq_len}, vocab_size={self.vocab_size}, " \
+               f"checkpoint_path={self.checkpoint_path}, d_model={self.d_model}, hidden_dim={self.hidden_dim}, max_seq_len={self.max_seq_len}, vocab_size={self.vocab_size}, " \
                f"validation_path={self.val_path}, test_path={self.test_path}),early stopping patience = {self.patience}" 
 
     def __repr__(self):
