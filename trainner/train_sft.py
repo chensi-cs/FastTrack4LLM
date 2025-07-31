@@ -34,7 +34,7 @@ print("项目根目录:", project_root)
 print("搜索路径:", sys.path)
 
 from utils.config import TrainConfig
-from utils.data import PretrainDataset  
+from utils.data import SFTDataset 
 from models.llama_model import Llama1Model, Llama1ForCausalLM
 from utils.utils import EarlyStopping
 
@@ -142,7 +142,6 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             if writer is not None:
                 # 记录参数分布
                 for name, param in model.named_parameters():
-                    # 记录参数值分布
                     writer.add_histogram(f"Parameters/{name}", param, batch_idx)  # 参数值的直方图
                     # 记录参数梯度分布（仅训练阶段有梯度）
                     if param.grad is not None and torch.isfinite(param.grad).any():
@@ -219,7 +218,7 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     
 
-def train(config):
+def sft(config):
     os.makedirs(config.model_save_path,exist_ok=True)
     os.makedirs(config.log_dir, exist_ok=True)
     os.makedirs(config.checkpoint_path, exist_ok=True)
@@ -232,13 +231,16 @@ def train(config):
         writer = None
 
     if config.use_wandb:
-        wandb.init(project="llm_pretrain", name=f"train_{config.model}_{config.num_epochs}_{config.batch_size}_{config.lr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        wandb.init(project="llm_sft", name=f"sft_{config.model}_{config.num_epochs}_{config.batch_size}_{config.lr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     else :
         wandb = None
     # 训练逻辑
     device = config.device
     if config.model == 'llama1':
         model =  Llama1ForCausalLM(config)
+        # 加载预训练模型
+        pretrain_path  = f'{config.model_result_path}/llama1_model.pt'
+        model.load_state_dict(torch.load(pretrain_path, map_location=device),strict=True)
     else:
         raise ValueError(f"Model {config.model} not supported")
     
@@ -258,13 +260,13 @@ def train(config):
 
     logger.info(f"config: {config}")
     logger.info("Loading datasets...")
-    train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
+    train_dataset = SFTDataset(config.data_path,config.tokenizer_path,config.max_seq_len)
     train_loader = DataLoader(
         train_dataset, 
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=16,
-        pin_memory = True, # 内存锁页
+        pin_memory = True,# 内存锁页
         drop_last=True,  # 丢弃最后一个不完整的batch
         prefetch_factor=2,  # 用来控制每个工作进程预先加载的样本数量
         persistent_workers=True  # 保持工作进程持续存在
@@ -272,14 +274,13 @@ def train(config):
     logger.info(f"Number of training samples: {len(train_dataset)}")
 
     if config.evaluate_val:
-        val_dataset = PretrainDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
+        val_dataset = SFTDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
         val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=16)
         logger.info(f"Number of validation samples: {len(val_dataset)}")
     if config.evaluate_test:
-        test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
+        test_dataset = SFTDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
         test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=16)
         logger.info(f"Number of test samples: {len(test_dataset)}")
-
 
     logger.info(f"Datasets loaded successfully...")
 
@@ -300,6 +301,7 @@ def train(config):
     logger.info(f"Model parameters:")
     for name, param in model.named_parameters():
         logger.info(f"{name}: {param.size()}")
+    
     try:
         for epoch in range(1,1+config.num_epochs):
             train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
@@ -343,9 +345,9 @@ def train(config):
             torch.save(model.state_dict(), model_save_path)
             logger.info("-"*100)
         
-        logger.info("Training completed.")
+        logger.info("Fine-tuning completed.")
     except KeyboardInterrupt:
-        logger.info("Training interrupted by user.")            
+        logger.info("Fine-tuning interrupted by user.")            
     finally:
         # 保存模型
         model.eval()  # 切换到推理模式
@@ -354,7 +356,6 @@ def train(config):
 
         if writer is not None:
             writer.close()
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Model Pretraining")
@@ -392,17 +393,16 @@ if __name__ == "__main__":
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    config.log_dir = os.path.join("logs", f"train_{now_timestamp}")
+    config.log_dir = os.path.join("logs", f"sft_{now_timestamp}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
-
 
     # 初始化全局logger
     logger = setup_logger(config.log_dir)
 
     start_time = datetime.now()
-    logger.info(f"Training started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logging.info("Start training")
-    train(config)
+    logger.info(f"Fine-tuning started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logging.info("Start fine-tuning...")
+    sft(config)
     end_time = datetime.now()
-    logger.info(f"Training completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Total training time: {end_time - start_time}")
+    logger.info(f"Fine-tuning completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Total fine-tuning time: {end_time - start_time}")

@@ -45,6 +45,7 @@ class TrainConfig(PretrainedConfig):
         self.test_path = 'data/model_data/test.json' # test data path
         self.tokenizer_path = 'data/' # tokenizer path
         self.model_save_path = 'saved_models' # model save path
+        self.model_result_path = 'all_models'
         self.log_dir = 'logs' # log directory
         self.checkpoint_path = 'checkpoints' # checkpoint path
 
