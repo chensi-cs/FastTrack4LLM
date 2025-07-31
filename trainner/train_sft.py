@@ -76,9 +76,10 @@ def get_lr(current_step,total_step,lr):
 
 def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     model.train()
-    # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'）。
+    # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'）， 默认是 reduction: str = "mean"
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
-    criterion =  nn.CrossEntropyLoss(ignore_index=0)
+    # 因为设置了loss_mask,所以将reduction设置为'none'，在计算损失时，使用loss_mask来计算需要忽略的损失值
+    criterion =  nn.CrossEntropyLoss(reduction='none')
     train_loss = 0.0
     avg_loss = 0.0
 
@@ -92,10 +93,11 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     start_time = datetime.now()
 
     for batch_idx, batch in enumerate(train_loader):
-        x, y, attention_mask = batch
+        x, y, attention_mask, loss_mask = batch
         x = x.to(device)
         y = y.to(device)
         attention_mask = attention_mask.to(device)
+        loss_mask = loss_mask.to(device)
         
         lr = get_lr((epoch-1)* iter_per_epoch + batch_idx, config.num_epochs * iter_per_epoch , config.lr )
         writer.add_scalar("LearningRate", lr, batch_idx)
@@ -111,6 +113,9 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             output = model(input_ids=x, attention_mask=attention_mask)    
         output = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
         running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
+        
+
+
         epoch_loss_list.append(running_loss.item())
 
         # 梯度累积的操作之一
