@@ -8,8 +8,12 @@ class MultiHeadAttention(nn.Module):
     def __init__(self, config,freqs_cos = None ,freqs_sin = None):
         super().__init__()
         self.d_model = config.d_model
+        # 注意力头数
         self.num_heads = config.num_heads
         self.dropout = config.dropout
+        # 确保注意力头数是d_model的倍数
+        assert self.d_model % self.num_heads == 0
+        # 每个注意力头的维度
         self.head_dim = self.d_model // self.num_heads
 
         self.wq = nn.Linear(self.d_model, self.d_model)
@@ -105,6 +109,7 @@ class MultiHeadAttention(nn.Module):
                 # print("v shape: ",v.shape)
                 # print("v :",v)
 
+        # attention_mask [batch_size, seq_len]
         if attention_mask is not None:
             attenion_mask = attenion_mask.view(batch_size,1,1,-1)
             attenion_mask = attention_mask.expand(batch_size,self.num_heads,seq_len,-1)
@@ -157,6 +162,139 @@ class MultiHeadAttention(nn.Module):
         # print("output :",output)
         output = self.out_dropout(output)
         return output,k,v
+
+
+
+class GroupedQueryAttention(nn.Module):
+    def __init__(self,config, freqs_cos=None, freqs_sin=None):
+        super().__init__()
+
+        self.d_model = config.d_model
+        # 注意力头数
+        self.num_heads = config.num_heads
+        # 注意力组数
+        self.num_groups = config.num_groups
+        # 确保注意力头数是注意力组数的倍数
+        assert self.num_heads % self.num_groups == 0
+        # 每个注意力组的注意力头数
+        self.num_heads_per_group = self.num_heads // self.num_groups
+        # 确保注意力头数是d_model的倍数
+        assert self.d_model % self.num_heads == 0 
+        # 每个注意力头的维度
+        self.head_dim = self.d_model // self.num_heads
+
+        # 查询权重，维度为[d_model, d_model] = [d_model, num_heads * head_dim]，即每个头的权重都不一样
+        self.wq = nn.Linear(self.d_model, self.d_model)
+        # 键权重， 维度为 [d_model, num_groups * head_dim], 即每个组的键权重不一样，但是组内的多个头的键权重共享
+        self.wk = nn.Linear(self.d_model, self.num_groups * self.head_dim)
+        # 值权重， 维度为 [d_model, num_groups * head_dim], 即每个组的值权重不一样，但是组内的多个头的值权重共享
+        self.wv = nn.Linear(self.d_model, self.num_groups * self.head_dim)
+        # 输出投影层，将注意力结果映射回原始维度
+        self.wo = nn.Linear(self.d_model, self.d_model)
+
+        self.attn_dropout = nn.Dropout(config.dropout)
+        self.out_dropout = nn.Dropout(config.dropout)
+        self.dropout = config.dropout
+
+        self.scale = math.sqrt(self.head_dim)
+        self.position_type = config.position_type
+        self.iscausal = config.iscausal
+        self.kv_cache = config.kv_cache
+        self.istrain = config.istrain
+        self.flash_att = config.flash_att and hasattr(torch.nn.functional,'scaled_dot_product_attention')
+
+        if self.position_type == "rope":
+            self.freqs_cos = freqs_cos
+            self.freqs_sin = freqs_sin
+
+    def forward(self,x,cache_k=None,cache_v=None,attention_mask=None):
+        batch_size, seq_len, d_model = x.shape
+
+        # 计算查询 [batch_size, seq_len, d_model] > [batch_size, seq_len, d_model] 
+        q = self.wq(x)
+        # 计算键 [batch_size, seq_len, d_model] > [batch_size, seq_len, num_groups * head_dim] 
+        k = self.wk(x)
+        # 计算值 [batch_size, seq_len, d_model] > [batch_size, seq_len, num_groups * head_dim] 
+        v = self.wv(x)
+
+        # [batch_size, seq_len, d_model] > [batch_size, seq_len, num_heads, head_dim]
+        q = q.view(batch_size, seq_len, self.num_heads, self.head_dim)  
+        # [batch_size, seq_len, num_groups * head_dim]  > [batch_size, seq_len, num_groups, head_dim]
+        k = k.view(batch_size, seq_len, self.num_groups, self.head_dim) 
+        #  [batch_size, seq_len, num_groups * head_dim]  > [batch_size, seq_len, num_groups, head_dim]
+        v = v.view(batch_size, seq_len, self.num_groups, self.head_dim)
+
+        if self.position_type == "rope":
+            q, k = apply_rotary_pos_emb(q,k,self.freqs_cos,self.freqs_sin)
+
+        # [batch_size, seq_len, num_heads, head_dim] > [batch_size, num_heads, seq_len, head_dim]
+        q = q.transpose(1,2)
+        # [batch_size, seq_len, num_groups, head_dim] > [batch_size, num_groups, seq_len, head_dim]
+        k = k.transpose(1,2)
+        # [batch_size, seq_len, num_groups, head_dim] > [batch_size, num_groups, seq_len, head_dim]
+        v = v.transpose(1,2)
+
+        # 将每组的键和值复制到组内的每个头
+        # [batch_size, num_groups, seq_len, head_dim] > [batch_size, num_groups, num_heads_per_group, seq_len, head_dim] > [batch_size, num_heads, seq_len, head_dim]
+        # k.unsqueeze(2) : [batch_size, num_groups, seq_len, head_dim] > [batch_size, num_groups, 1, seq_len, head_dim] 
+        # k.repeat(1,1,self.num_heads_per_group,1,1) : [batch_size, num_groups, 1, seq_len, head_dim] > [batch_size, num_groups, num_heads_per_group, seq_len, head_dim] 
+        # k.view(batch_size, self.num_heads, seq_len, self.head_dim) : [batch_size, num_groups, num_heads_per_group, seq_len, head_dim] > [batch_size, num_groups * num_heads_per_group = num_heads, seq_len, head_dim] 
+        k = k.unsqueeze(2).repeat(1,1,self.num_heads_per_group,1,1).view(batch_size, self.num_heads, seq_len, self.head_dim)
+
+        # v同样 [batch_size, num_groups, seq_len, head_dim] > [batch_size, num_groups, num_heads_per_group, seq_len, head_dim] > [batch_size, num_heads, seq_len, head_dim]
+        
+        v = v.unsqueeze(2).repeat(1,1,self.num_heads_per_group,1,1).view(batch_size, self.num_heads, seq_len, self.head_dim)
+
+        # attention_mask [batch_size, seq_len]
+        if attention_mask is not None :
+            # [batch_size, seq_len] > [batch_size, 1, 1, seq_len]
+            attention_mask = attention_mask.view(batch_size,1,1,seq_len)
+            attention_mask = attention_mask.expand(batch_size, self.num_heads, seq_len, seq_len)
+        
+        if  self.flash_att:
+            dropout_p = self.dropout if self.istrain else 0.0
+            attn_output = F.scaled_dot_product_attention(q,k,v,dropout_p=dropout_p,is_causal=self.iscausal,attn_mask=attention_mask)
+        else:
+            # 计算注意力分数
+            # [batch_size, num_heads, seq_len, seq_len]
+            attn_scores = torch.matmul(q,k.transpose(-2,-1)) / self.scale
+
+            if self.iscausal:
+                # 创建一个上三角矩阵，主对角线以上的元素为1
+                mask = torch.tril(torch.ones(seq_len,seq_len),diagonal=1)
+                mask = mask.to(attn_scores.device)
+                # 用mask填充attn_scores,将attn_scores中主对角线以上的元素（为1）填充为-inf
+                attn_scores = attn_scores.masked_fill(mask==1,float('-inf'))
+
+            # 用attention_mask填充attn_scores,将attn_scores中attention_mask为0的元素填充为-inf
+            if attention_mask is not None:
+                attn_scores = attn_scores.masked_fill(attention_mask==0,float('-inf'))
+        
+            # 计算注意力权重
+            attn_weights = torch.softmax(attn_scores,dim=-1)
+            # dropout
+            attn_weights = self.attn_dropout(attn_weights)
+            # 计算注意力输出
+            # [batch_size, num_heads, seq_len, seq_len] * [batch_size, num_heads, seq_len, head_dim] = [batch_size, num_heads, seq_len, head_dim]
+            attn_output = torch.matmul(attn_weights,v)
+        
+        # attn_output.transpose(1,2) : [batch_size, num_heads, seq_len, head_dim] >[batch_size, seq_len, num_heads, head_dim]
+        # .view(batch_size, seq_len, self.d_model) : [batch_size, seq_len, num_heads, head_dim] > [batch_size, seq_len, num_heads*head_dim=d_model]
+        attn_output = attn_output.transpose(1,2).view(batch_size, seq_len, self.d_model)
+
+        # [batch_size, seq_len, num_heads*head_dim=d_model] > [batch_size, seq_len, d_model]
+        output = self.wo(attn_output)
+        # dropout
+        output = self.out_dropout(output)
+        
+        return output,k,v
+
+
+
+
+
+
+
 
 
 

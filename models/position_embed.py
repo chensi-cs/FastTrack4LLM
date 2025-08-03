@@ -104,8 +104,8 @@ def apply_rotary_pos_emb(q,k,cos,sin):
     # print("cos: ",cos)
     # print("sin: ",sin)
     # 调整cos和sin的形状以匹配q和k的广播需求
-    cos = cos = cos.unsqueeze(1)  # shape: (seq_len, 1, d_model)
-    sin = sin = sin.unsqueeze(1)  # shape: (seq_len, 1, d_model)
+    cos = cos.unsqueeze(1)  # shape: (seq_len, 1, d_model)
+    sin = sin.unsqueeze(1)  # shape: (seq_len, 1, d_model)
 
 
     # print("after unsqueeze")
