@@ -38,6 +38,15 @@ class TrainConfig(PretrainedConfig):
         self.use_amp = True
         self.istrain = True
 
+        # moe
+        self.use_moe = False
+        self.num_experts = 4
+        self.num_independent_experts = 3
+        self.num_shared_experts = 1
+        self.experts_topk = 1
+        # 是否标准化top-k概率
+        self.norm_topk_prob = True
+
         
         # self.num_workers = 4
         self.data_path = 'data/model_data/train.json' # train data path
