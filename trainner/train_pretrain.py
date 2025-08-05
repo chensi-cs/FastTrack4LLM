@@ -35,7 +35,7 @@ print("搜索路径:", sys.path)
 
 from utils.config import TrainConfig
 from utils.data import PretrainDataset  
-from models.llama_model import Llama1Model, Llama1ForCausalLM
+from models.llama_model import  Llama1ForCausalLM,Llama3ForCausalLM
 from utils.utils import EarlyStopping
 
 epoch_loss_list = []
@@ -238,8 +238,11 @@ def train(config):
         wandb = None
     # 训练逻辑
     device = config.device
+    
     if config.model == 'llama1':
         model =  Llama1ForCausalLM(config)
+    elif config.model == 'llama3':
+        model =  Llama3ForCausalLM(config)
     else:
         raise ValueError(f"Model {config.model} not supported")
     
