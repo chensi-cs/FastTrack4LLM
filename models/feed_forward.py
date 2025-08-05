@@ -87,7 +87,7 @@ class MoEGate(nn.Module):
             topk_weight = topk_weight / topk_prob_sum
         
         aux_loss = 0
-        
+
         # 计算负载均衡损失（训练时使用），用于避免所有样本集中路由到少数几个专家，确保每个专家都能被充分利用，从而最大化模型容量的利用率。
         if self.istrain:
             """
@@ -147,19 +147,20 @@ class MoEFeedForward(nn.Module):
         self.hidden_dim = config.hidden_dim
         self.dropout = nn.Dropout(config.dropout)
 
+        self.num_experts = config.num_experts
         self.num_independent_experts = config.num_independent_experts
         self.num_shared_experts = config.num_shared_experts
+        self.experts_topk = config.experts_topk
+        self.norm_topk_prob = config.norm_topk_prob
+        self.istrain = config.istrain
 
         self.independent_experts = nn.ModuleList([FeedForward(config) for i in range(self.num_independent_experts)])
         if self.num_shared_experts > 0:
             self.shared_experts = nn.ModuleList([FeedForward(config) for i in range(self.num_shared_experts)])
 
-        self.gate = MoEGate(config.d_model,self.num_independent_experts+self.num_shared_experts)
+        self.gate = MoEGate(config)
 
-    def foreward(self,x):
-        batch_size, seq_len, d_model = x.shape
-        topk_weight,topk_index = self.gate(x)
-        
+    def forward(self,x):
         #  处理共享专家（所有样本都会经过所有共享专家）
         shared_experts_output = 0.0
         if self.num_shared_experts > 0:
@@ -167,10 +168,50 @@ class MoEFeedForward(nn.Module):
                 # expert(x) 的维度和输入一样，都是 [batch_size, seq_len, d_model]
                 shared_experts_output += expert(x)
         # 对共享专家的输出进行平均
-        # shared_experts_output 的维度和输入一样，都是 [batch_size, seq_len, d_model]，他是所有共享专家输出的和，求平均
+        # shared_experts_output 的维度和输入一样，都是 [batch_size, seq_len, d_model]，他是所有共享专家输出的和的平均
         shared_experts_output /= self.num_shared_experts
 
-        # 处理独立专家（每个样本都会经过一个独立专家）
+        # 处理独立专家
+        raw_x = x
+        raw_x_shape = raw_x.shape
+        batch_size, seq_len, d_model = x.shape
         topk_weight,topk_index = self.gate(x)
-        independent_experts_output = 0.0
+        # topk_weight , topk_index [batch_size * seq_len, experts_topk]
+
+        # [batch_size, seq_len, d_model] > [batch_size * seq_len, d_model]
+        x = x.view(-1,d_model)
+
+        # [batch_size * seq_len, experts_topk] > [batch_size * seq_len * experts_topk]
+        # flat_topk_idx  是展平后的专家索引张量，记录了每个 “处理位置” 对应的专家编号
+        flat_topk_idx = topk_index.view(-1)
+
+        # if self.istrain:
+        # 复制输入，每个token被复制top_k次（与选中的专家数量匹配）
+        # [batch_size * seq_len, d_model] > [batch_size * seq_len * experts_topk, d_model]
+        x = x.repeat_interleave(self.experts_topk,dim=0)
+
+        # [batch_size * seq_len * experts_topk, d_model]
+        # 初始化输出，大小与复制后的输入相同
+        y = torch.empty_like(x,dtype=torch.float16)
+
+        for i,expert in enumerate(self.independent_experts):
+            # mask : [batch_size * seq_len * experts_topk],值为True或False,表示该token是否由当前专家i处理
+            mask = (flat_topk_idx == i )
+            # x[mask] 是应该由当前专家i处理的输入，expert(x[mask]) 是当前专家i处理后的输
+            y[mask] = expert(x[mask]).to(y.dtype)
+
+        # 融合专家输出：按权重加权求和
+        # y.view(batch_size * seq_len,self.experts_topk,d_model): [batch_size * seq_len * experts_topk, d_model] > [batch_size * seq_len, experts_topk, d_model]
+        # topk_weight.unsqueeze(-1) : [batch_size * seq_len, experts_topk] > [batch_size * seq_len, experts_topk, 1]
+        # y.view(batch_size * seq_len,self.experts_topk,d_model) * topk_weight.unsqueeze(-1) : [batch_size * seq_len, experts_topk, d_model]
+        # .sum(dim=1): [batch_size * seq_len, d_model]
+        # .sum(dim=1) 乘权重后在top_k维度求和，得到每个token的最终输出
+        y = (y.view(batch_size * seq_len,self.experts_topk,d_model)) * topk_weight.unsqueeze(-1).sum(dim=1)
+        # y 的维度和输入一样，都是 [batch_size, seq_len, d_model]
+        y = y.view(raw_x_shape)
+        if self.num_shared_experts > 0:
+            y += shared_experts_output
+        return y      
+
+        
         
