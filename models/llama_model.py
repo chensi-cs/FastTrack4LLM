@@ -20,15 +20,12 @@ class Llama1Block(nn.Module):
         self.attention =  MultiHeadAttention(config,freqs_cos, freqs_sin)
         self.ffn = FeedForward(config)
         self.norm = RMSNorm(dim=self.d_model)
-        self.dropout=nn.Dropout(config.dropout)
-        
 
-        
-    def forward(self,x,past_k,past_v,attention_mask):
+    def forward(self,x,kv_cache,attention_mask):
         # Pre-normalization + RMSNorm
         x=self.norm(x)
         # 注意力机制
-        attn_out,past_k,past_v=self.attention(x,past_k,past_v,attention_mask)
+        attn_out,kv_cachev=self.attention(x,kv_cache,attention_mask)
         # 残差连接
         x=x+attn_out
         # Pre-normalization + RMSNorm
@@ -37,7 +34,7 @@ class Llama1Block(nn.Module):
         ffn_out=self.ffn(x)
         # 残差连接
         x=x+ffn_out
-        return x,past_k,past_v
+        return x,kv_cache
     
 class Llama1Model(nn.Module):
     def __init__(self,config):
@@ -59,17 +56,14 @@ class Llama1Model(nn.Module):
             input_ids: Optional[torch.Tensor] = None,
             attention_mask : Optional[torch.Tensor] = None
             ):
-        past_k,past_v=None,None
+        kv_cache = None
         x=self.token_embedding(input_ids)
         for layer in self.layers:
-            x,past_k,past_v=layer(x = x,
-                                  past_k = past_k,
-                                  past_v = past_v,
-                                  attention_mask = attention_mask)
+            x,kv_cache=layer(x = x,kv_cache=kv_cache,attention_mask = attention_mask)
         # 计算output之前的归一化
         x=self.norm(x)
         output=self.output_layer(x)
-        return output
+        return output,kv_cache
 
 class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
     def __init__(self,config):
@@ -80,13 +74,13 @@ class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         **kwargs):
-        logits = self.model(
+        logits,kv_cache = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask
         )
         out = CausalLMOutputWithPast (
             logits = logits,            # 预测的下一个 token 的概率分布（必需字段）
-            past_key_values = None,     # 用于缓存注意力机制中的键值对（KV cache），加速后续生成步骤（可选字段）
+            past_key_values = kv_cache,     # 用于缓存注意力机制中的键值对（KV cache），加速后续生成步骤（可选字段）
             hidden_states = None,       # 隐藏状态（中间层输出），用于进一步分析或调试（可选字段）
             attentions = None           # 注意力权重（可选字段，通常用于可视化或分析模型注意力分布
         )
@@ -104,13 +98,12 @@ class Llama3Block(nn.Module):
         self.attention = GroupedQueryAttention(config,freqs_cos,freqs_sin)
         self.ffn = MoEFeedForward(config) if config.use_moe else FeedForward(config)
         self.norm = RMSNorm(dim=self.d_model)
-        self.dropout=nn.Dropout(config.dropout)
-    
-    def forward(self,x,past_k,past_v,attention_mask):
+
+    def forward(self,x,kv_cache,attention_mask):
         # Pre-normalization + RMSNorm
         x = self.norm(x)
         # 注意力机制
-        attn_out,past_k,past_v = self.attention(x,past_k,past_v,attention_mask)
+        attn_out,kv_cache = self.attention(x,kv_cache,attention_mask)
         # 残差连接
         x = x + attn_out
         # Pre-normalization + RMSNorm
@@ -119,35 +112,35 @@ class Llama3Block(nn.Module):
         ffn_out = self.ffn(x)
         # 残差连接
         x = x + ffn_out
-        return x,past_k,past_v
+        return x,kv_cache
 
 class Llama3Model(nn.Module):
     def __init__(self,config):
         super().__init__()
         self.config = config
         self.d_model = config.d_model
-        self.vob_size = config.vob_size
+        self.vocab_size = config.vocab_size
         self.num_layers = config.num_layers
-        self.token_embedding = nn.Embedding(self.vob_size,self.d_model)
+        self.token_embedding = nn.Embedding(self.vocab_size,self.d_model)
         self.max_position_len = config.max_position_len
         self.num_heads = config.num_heads
-        self.freqs_cos, self.freqs_sin = precompute_rope_matrix(self.max_position_len, self.d_model // self.nums_heads)
+        self.freqs_cos, self.freqs_sin = precompute_rope_matrix(self.max_position_len, self.d_model // self.num_heads)
         self.dropout = nn.Dropout(config.dropout)
         self.layers = nn.ModuleList([Llama3Block(layer_id,config,self.freqs_cos,self.freqs_sin) for layer_id in range(self.num_layers)])
         self.norm = RMSNorm(dim=self.d_model)
-        self.output_layer = nn.Linear(self.d_model,self.vob_size)
+        self.output_layer = nn.Linear(self.d_model,self.vocab_size)
 
     def forward(self,
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None):
         x = self.token_embedding(input_ids)
-        past_k,past_v=None,None
+        kv_cache=None
         for layer in self.layers:
-            x,past_k,past_v = layer(x,past_k,past_v,attention_mask)
+            x,kv_cache = layer(x,kv_cache,attention_mask)
         # 计算output之前的归一化
         x = self.norm(x)
         output = self.output_layer(x)
-        return output
+        return output,kv_cache
     
 class Llama3ForCausalLM(PreTrainedModel,GenerationMixin):
     def __init__(self,config):
@@ -157,13 +150,13 @@ class Llama3ForCausalLM(PreTrainedModel,GenerationMixin):
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         **kwargs):
-        logits = self.model(
+        logits,kv_cache = self.model(
             input_ids = input_ids,
             attention_mask = attention_mask
         )
         out = CausalLMOutputWithPast(
             logits = logits,
-            past_key_values = None,
+            past_key_values = kv_cache,
             hidden_states=None,
             attentions=None
         )
