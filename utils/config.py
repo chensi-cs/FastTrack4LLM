@@ -46,6 +46,7 @@ class TrainConfig(PretrainedConfig):
         self.experts_topk = 1
         # 是否标准化top-k概率
         self.norm_topk_prob = True
+        self.aux_loss_alpha = 0.1
 
         
         # self.num_workers = 4
