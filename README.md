@@ -1,92 +1,176 @@
+💡注：以下内容中，✅表示已经完成，❌表示有计划但尚未完成
 # LLM Learning Project
 
-本项目是一个基于Transformer架构的深度学习项目，主要用于中英文翻译任务和语言模型预训练。以下是项目结构和各模块的详细说明。
+本项目是一个从零开始构建的大语言模型学习框架，受开源项目 [MiniMind](https://github.com/jingyaogong/minimind) 的启发，实现了完整的大模型训练，微调，推理流程。
 
-## 项目结构
+## 🎯 项目特色
+
+本项目完整复现了大模型训练的全生命周期，包括：
+- 🏗️ **从零构建大模型结构**：基于Transformer-Decoder架构，支持MoE（混合专家模型）✅
+- 🚀 **预训练 (Pretrain)**：大规模无监督预训练 ✅
+- 🎯 **监督微调 (SFT)**：指令微调和对齐训练 ✅
+- ⚡ **LoRA微调**：参数高效微调技术 ❌
+- 🧠 **直接偏好优化 (DPO)**：基于人类反馈的强化学习 ❌
+- 🔄 **模型蒸馏**：大模型知识迁移到小模型 ❌
+
+
+
+  
+## 📁 项目结构
 
 ```
 llm_learning/
-├── README.md                # 项目说明文档
-├── requirements.txt         # Python依赖库列表
-├── checkpoints/             # 模型检查点保存目录
-│   └── best_model.pth       # 最佳模型权重文件
-├── data/                    # 数据目录
-│   ├── llm_data/            # 语言模型数据
-│   │   ├── processed/       # 处理后的数据
-│   │   └── raw/             # 原始数据
-│   └── translate_data/      # 翻译任务数据
-│       ├── processed/       # 处理后的翻译数据
-│       └── raw/             # 原始翻译数据
-├── models/                  # 模型实现
-│   ├── attention.py         # 注意力机制实现
-│   ├── llama_model.py       # LLaMA模型实现
-│   └── transformer_model.py # Transformer模型实现
-├── trainner/                # 训练脚本
-│   ├── train_pretrain.py    # 预训练脚本
-│   └── train_transformer.py # Transformer训练脚本
-├── utils/                   # 工具模块
-│   ├── activations.py       # 激活函数
-│   ├── attention.py         # 注意力工具
-│   ├── config.py           # 配置文件
-│   ├── data.py             # 数据加载工具
-│   ├── data_tokenization.py # 数据分词工具
-│   ├── feed_forward.py      # 前馈网络
-│   ├── norm_data.py        # 归一化工具
-│   ├── optimizer.py        # 优化器
-│   └── position_embed.py   # 位置编码
-└── test/                    # 测试脚本
-    ├── test.py             # 主测试脚本
-    └── test_tokenizer.py  # 分词器测试
+├── README.md                    # 项目说明
+├── requirements.txt            # 依赖库
+├── train.sh                    # 训练启动脚本
+├── model_chat.py              # 模型推理测试
+├── checkpoints/               # 模型检查点保存目录
+├── data/                      # 数据目录
+│   ├── llm_data/              # 大模型训练数据
+│   │   ├── raw/               # 原始数据
+│   │   │   ├── pretrain_hq.jsonl    # 高质量预训练数据
+│   │   │   ├── sft_mini_512.jsonl   # SFT微调数据
+│   │   │   └── dpo.jsonl            # DPO偏好数据
+│   │   └── processed/         # 处理后数据
+│   │       ├── pretrain_hq.json     # 预训练JSON格式
+│   │       ├── sft_mini_512.json    # SFT数据JSON格式
+│   │       └── dpo.json             # DPO数据JSON格式
+│   ├── tokenizer.json         # 分词器配置
+│   └── tokenizer_config.json  # 分词器参数
+├── data_process/              # 数据处理工具
+│   ├── data_convert.py        # JSONL转JSON
+│   ├── data_print.py          # 数据查看工具
+│   ├── parquet2csv.py         # 格式转换工具
+│   └── split_data.py          # 数据切分工具
+├── models/                    # 模型实现
+│   ├── __init__.py
+│   ├── attention.py           # 注意力机制
+│   ├── feed_forward.py        # 前馈神经网络
+│   ├── llama_model.py         # LLaMA模型
+│   ├── norm_data.py           # 归一化层
+│   ├── position_embed.py      # 位置编码
+├── trainner/                  # 训练框架
+│   ├── __init__.py
+│   ├── train_pretrain.py      # 预训练脚本
+│   ├── train_sft.py           # SFT微调脚本
+├── utils/                     # 工具模块
+│   ├── __init__.py
+│   ├── config.py              # 配置管理
+│   ├── data.py                # 数据加载
+│   └── utils.py               # 通用工具
+
 ```
 
-## 模块功能说明
 
-### 1. 数据模块 (`data/`)
-- **原始数据**：存放未经处理的原始数据文件（JSONL/CSV格式）。
-- **处理后的数据**：经过清洗、分词和格式转换后的数据，可直接用于模型训练。
+## 🔧 核心依赖
+```bash
+torch>=2.0.0          # 深度学习框架
+transformers>=4.30.0  # Hugging Face生态
+```
 
-### 2. 模型模块 (`models/`)
-- **Transformer模型**：基于标准的Transformer架构实现。
-- **LLaMA模型**：实现了LLaMA架构的轻量级语言模型。
-- **注意力机制**：支持多头注意力和旋转位置编码。
+## 🚀 快速开始
 
-### 3. 训练模块 (`trainner/`)
-- **预训练脚本**：用于语言模型的预训练。
-- **翻译任务脚本**：支持中英文翻译任务的微调。
+### 1. 环境准备
+```bash
+# 安装依赖
+pip install -r requirements.txt
+```
 
-### 4. 工具模块 (`utils/`)
-- **数据加载**：支持从JSON/CSV文件加载数据。
-- **分词工具**：包含BPE分词器和自定义分词逻辑。
-- **优化器**：实现了AdamW和带学习率热身的优化器。
+### 2. 数据准备
 
-## 支持的模型架构
+本项目不包括数据集的预处理过程，数据来源请参考开源项目 [MiniMind](https://github.com/jingyaogong/minimind) ，本项目使用的数据文件需放入`data/llm_data/processed/`目录下
 
-### 1. LLaMA (Meta)
-- **LLaMA1**：轻量级开源语言模型，支持7B/13B/33B/65B参数版本。
+### 3. 训练流程
 
-### 待补充
+#### 1）预训练 ✅
+```bash
+# 启动预训练脚本
+bash train.sh
+```
 
+#### 2）监督微调 (SFT) ✅
+```bash
+# 启动微调脚本
+bash sft.sh
+```
+#### 3）LoRA微调 (LoRA) ❌
+```bash
+# 启动LoRA微调脚本
+bash lora.sh
+```
 
-## 模型扩展计划
-- [✅] 支持LLaMA1
-- [❌] 支持LLaMA2/Llama3
-- [❌] 支持Qwen
-- [❌] 支持GPT系列
+#### 4）DPO偏好优化 ❌
 
-## 快速开始
+#### 5）模型蒸馏 ❌
 
-1. 安装依赖：
-   ```bash
-   pip install -r requirements.txt
-   ```
+### 4. 模型测试
 
-2. 运行预训练：
-   ```bash
-   python trainner/train_pretrain.py
-   ```
+```bash
+# 交互式对话测试
+python model_chat.py 
+```
 
+## 5. 训练细节
 
+### 日志和可视化
+- **TensorBoard**：`logs/` 目录下的训练日志 ✅
+- **Weights & Biases**：`wandb/` 目录下的实验跟踪 ✅
+- **训练图表**：每个epoch的损失曲线自动保存 ✅
 
-## TODO
-- [ ] 增加更多主流模型结构（如GPT、BERT）。
-- [ ] 优化数据加载速度。
+### 性能指标
+- **训练损失**：实时显示在TensorBoard ✅
+- **验证困惑度**：每轮评估模型性能 ❌
+- **GPU利用率**：监控硬件资源使用 ❌
+
+### 训练策略
+- **学习率调度**：余弦退火 + 线性预热  ✅
+- **梯度累积**：支持大批量训练  ✅
+- **混合精度**：FP16训练加速  ✅
+- **梯度裁剪**：防止梯度爆炸  ✅
+- **Flash Attention**: 加速训练 ✅
+
+## 🔧 核心实现
+
+### 1. 支持的模型架构
+- **LLaMA系列模型**：实现LLaMA1，LLaMA2，LLaMA3模型结构 ✅
+- **混合专家(MoE)**：支持混合专家(MoE)模型 （包含共享+独立专家）✅
+
+### 2.LLaMA系列模型
+#### 1）LLaMA1结构 ✅
+LLaMA1 (2023) 结构Transformer 解码器架构做出了以下改进：
+- **Pre-normalization + RMSNorm**：使用前置层归一化+RMSNorm归一化函数替换Transformer 解码器原有的Post-normalization + LayerNorm ✅
+- **RoPE**: 采用了旋转位置嵌入（Rotary Positional Embedding, RoPE） ✅
+- **SwiGLU 激活函数**: 使用SwiGLU激活函数 ✅
+
+#### 2）LLaMA2 & LLaMA3 结构 ✅
+
+- LLaMA2 (2023)  在 LLaMA1的基础上将多头注意力机制（Multi-Head Attention）替换为分组查询注意力（Grouped Query Attention） ✅
+
+- LLaMA3 (2024) 相比 LLaMA2 在模型结构上并没有太大变化，未采用 MoE（Mixture of Experts）架构，而依然采用 Dense FFN 结构 
+
+## 🎯 实验结果 ❌
+
+### 预训练效果 ❌
+
+### 微调效果 ❌
+
+### 模型测试 ❌
+
+## 🤝 贡献指南
+
+欢迎提交Issue和PR！当前重点开发：
+- [ ] LoRA微调实现
+- [ ] DPO训练脚本
+- [ ] 模型蒸馏实现
+- [ ] 优化tokenizer
+- [ ] Web界面部署
+
+## 🙏 致谢
+
+- [MiniMind](https://github.com/jingyaogong/minimind) - 项目灵感来源
+- [LLaMA](https://github.com/facebookresearch/llama) - 模型架构参考
+- [Hugging Face](https://huggingface.co/) - 开源生态支持
+
+---
+
+**⭐ 如果这个项目对你有帮助，请给个Star支持！**

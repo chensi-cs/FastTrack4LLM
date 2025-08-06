@@ -4,28 +4,15 @@ from transformers import PretrainedConfig
 class TrainConfig(PretrainedConfig):
     def __init__(self):
         super().__init__()
+        # 训练参数
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 32 # batch size
         self.base_batch_size = 32 # base batch size
         self.num_epochs = 2 # number of epochs
         self.lr = 5e-4 # learning rate
         self.base_lr = 5e-4 # base learning rate
-        self.num_heads = 8 # number of heads for multi-head attention
-        self.hidden_dim = 1024 # hidden dimension for feedforward network
-        self.num_layers = 8 # number of layers
-        self.dropout = 0.0 # dropout rate
-        self.d_model = 512 # embedding dimension for one token
-        self.max_seq_len = 512 # max length of input sequence
-        self.max_position_len = 32768 # max length of position embedding
-        self.vocab_size = 6400 # vocabulary size
         self.accumulation_steps = 8 # gradient accumulation steps
-        self.position_type = 'rope'
-        self.activation = 'silu'
-        self.kv_cache = False
-        self.flash_att = False
-        self.model = 'llama1'
         self.optimizer = 'adamw'
-        self.iscausal = True
         self.patience = 5 # early stopping patience
         self.grad_clip = 1.0
         self.ddp = False
@@ -36,20 +23,36 @@ class TrainConfig(PretrainedConfig):
         self.evaluate_val = False
         self.evaluate_test = False
         self.use_amp = True
+        # self.num_workers = 4
+
+        # 模型参数
+        self.model = 'llama1'
+        self.d_model = 512 # embedding dimension for one token
+        self.max_seq_len = 512 # max length of input sequence
+        self.max_position_len = 32768 # max length of position embedding
+        self.vocab_size = 6400 # vocabulary size
+        self.num_heads = 8 # number of heads for multi-head attention
+        self.hidden_dim = 1024 # hidden dimension for feedforward network
+        self.num_layers = 8 # number of layers
+        self.dropout = 0.0 # dropout rate
+        self.position_type = 'rope'
+        self.activation = 'silu'
+        self.use_kv_cache = False
+        self.flash_att = False
+        self.iscausal = True
         self.istrain = True
 
-        # moe
+        # MoE参数
         self.use_moe = False
         self.num_experts = 4
         self.num_independent_experts = 3
         self.num_shared_experts = 1
         self.experts_topk = 1
-        # 是否标准化top-k概率
-        self.norm_topk_prob = True
+        self.norm_topk_prob = True # 是否标准化top-k概率
         self.aux_loss_alpha = 0.1
 
         
-        # self.num_workers = 4
+        # 路径参数
         self.data_path = 'data/model_data/train.json' # train data path
         self.val_path = 'data/model_data/val.json' # validation data path
         self.test_path = 'data/model_data/test.json' # test data path
@@ -59,21 +62,18 @@ class TrainConfig(PretrainedConfig):
         self.log_dir = 'logs' # log directory
         self.checkpoint_path = 'checkpoints' # checkpoint path
 
-        # 测试一些训练技巧
-        self.test_early_stopping = False
-        self.test_grad_accumulation = False
-        self.test_lr_scheduler = False
-        self.test_mixed_precision = False
-        self.test_weight_decay = False
-        self.test_gradient_clipping = False
-        
+        # 测试训练技巧
+        # self.test_early_stopping = False
+        # self.test_grad_accumulation = False
+        # self.test_lr_scheduler = False
+        # self.test_mixed_precision = False
+        # self.test_weight_decay = False
+        # self.test_gradient_clipping = False   
 
     def __str__(self):
         # 自定义打印格式，方便查看配置信息
-        return f"Config(device={self.device}, batch_size={self.batch_size}, num_epochs={self.num_epochs}, learning_rate={self.lr}, " \
-               f"data_path={self.data_path}, tokenizer_path={self.tokenizer_path}, model_save_path={self.model_save_path}, log_dir={self.log_dir}, " \
-               f"checkpoint_path={self.checkpoint_path}, d_model={self.d_model}, hidden_dim={self.hidden_dim}, max_seq_len={self.max_seq_len}, vocab_size={self.vocab_size}, " \
-               f"validation_path={self.val_path}, test_path={self.test_path}),early stopping patience = {self.patience}" 
+        return f'{self.__class__.__name__}({self.__dict__})'
+    
 
     def __repr__(self):
         return self.__str__()
@@ -86,8 +86,6 @@ class ChatConfig(TrainConfig):
         self.max_generate_len = 1024
         self.chat_mode = 0
 
-
-
 class Llama1Config(TrainConfig):
     def __init__(self):
         super().__init__()
@@ -98,10 +96,10 @@ class Llama2Config(TrainConfig):
     def __init__(self):
         super().__init__()
         self.model = 'llama2'
-        self.num_layers = 12
+        self.num_layers = 8
 
 class Llama3Config(TrainConfig):
     def __init__(self):
         super().__init__()
         self.model = 'llama3'
-        self.num_layers = 16
+        self.num_layers = 8
