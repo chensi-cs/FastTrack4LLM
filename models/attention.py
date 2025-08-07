@@ -70,13 +70,13 @@ class MultiHeadAttention(nn.Module):
 
         # attention_mask [batch_size, seq_len]
         if attention_mask is not None:
-            attenion_mask = attenion_mask.view(batch_size,1,1,-1)
-            attenion_mask = attention_mask.expand(batch_size,self.num_heads,seq_len,-1)
+            attention_mask = attention_mask.view(batch_size,1,1,-1)
+            attention_mask = attention_mask.expand(batch_size,self.num_heads,seq_len,-1)
             
         if  self.flash_att:
-            # print("apply flash attention")
+        
             dropout_p = self.dropout if self.istrain else 0.0
-            attn_output = F.scaled_dot_product_attention(q,k,v,dropout_p=dropout_p,is_causal=self.iscausal,attn_mask=attenion_mask)
+            attn_output = F.scaled_dot_product_attention(q,k,v,dropout_p=dropout_p,is_causal=self.iscausal,attn_mask=attention_mask)
 
         else:
             # 计算注意力分数
@@ -144,7 +144,7 @@ class GroupedQueryAttention(nn.Module):
         self.scale = math.sqrt(self.head_dim)
         self.position_type = config.position_type
         self.iscausal = config.iscausal
-        self.use_kv_cache = config.kv_cache
+        self.use_kv_cache = config.use_kv_cache
         self.istrain = config.istrain
         self.flash_att = config.flash_att and hasattr(torch.nn.functional,'scaled_dot_product_attention')
 
@@ -152,7 +152,7 @@ class GroupedQueryAttention(nn.Module):
             self.freqs_cos = freqs_cos
             self.freqs_sin = freqs_sin
 
-    def forward(self,x,cache_k=None,cache_v=None,attention_mask=None):
+    def forward(self,x,kv_cache=None,attention_mask=None):
         batch_size, seq_len, d_model = x.shape
 
         # 计算查询 [batch_size, seq_len, d_model] > [batch_size, seq_len, d_model] 
@@ -171,6 +171,16 @@ class GroupedQueryAttention(nn.Module):
 
         if self.position_type == "rope":
             q, k = apply_rotary_pos_emb(q,k,self.freqs_cos,self.freqs_sin)
+
+        # 应用 kv cache
+        if  self.use_kv_cache:
+            # 如果启用了kv_cache，则将当前k和v与缓存的k和v拼接
+            if kv_cache is not None:
+                k = torch.cat([kv_cache[0],k],dim=1)
+                v = torch.cat([kv_cache[1],v],dim=1)
+            kv_cache = (k,v)
+        else:
+            kv_cache = None
 
         # [batch_size, seq_len, num_heads, head_dim] > [batch_size, num_heads, seq_len, head_dim]
         q = q.transpose(1,2)
@@ -195,7 +205,7 @@ class GroupedQueryAttention(nn.Module):
             # [batch_size, seq_len] > [batch_size, 1, 1, seq_len]
             attention_mask = attention_mask.view(batch_size,1,1,seq_len)
             attention_mask = attention_mask.expand(batch_size, self.num_heads, seq_len, seq_len)
-        
+            attention_mask = attention_mask.bool()  # 转换为布尔类型
         if  self.flash_att:
             dropout_p = self.dropout if self.istrain else 0.0
             attn_output = F.scaled_dot_product_attention(q,k,v,dropout_p=dropout_p,is_causal=self.iscausal,attn_mask=attention_mask)
@@ -206,7 +216,7 @@ class GroupedQueryAttention(nn.Module):
 
             if self.iscausal:
                 # 创建一个上三角矩阵，主对角线以上的元素为1
-                mask = torch.tril(torch.ones(seq_len,seq_len),diagonal=1)
+                mask = torch.triu(torch.ones(seq_len,seq_len),diagonal=1)
                 mask = mask.to(attn_scores.device)
                 # 用mask填充attn_scores,将attn_scores中主对角线以上的元素（为1）填充为-inf
                 attn_scores = attn_scores.masked_fill(mask==1,float('-inf'))
@@ -214,7 +224,6 @@ class GroupedQueryAttention(nn.Module):
             # 用attention_mask填充attn_scores,将attn_scores中attention_mask为0的元素填充为-inf
             if attention_mask is not None:
                 attn_scores = attn_scores.masked_fill(attention_mask==0,float('-inf'))
-        
             # 计算注意力权重
             attn_weights = torch.softmax(attn_scores,dim=-1)
             # dropout
@@ -225,14 +234,14 @@ class GroupedQueryAttention(nn.Module):
         
         # attn_output.transpose(1,2) : [batch_size, num_heads, seq_len, head_dim] >[batch_size, seq_len, num_heads, head_dim]
         # .view(batch_size, seq_len, self.d_model) : [batch_size, seq_len, num_heads, head_dim] > [batch_size, seq_len, num_heads*head_dim=d_model]
-        attn_output = attn_output.transpose(1,2).view(batch_size, seq_len, self.d_model)
+        attn_output = attn_output.transpose(1,2).contiguous().view(batch_size, seq_len, self.d_model)
 
         # [batch_size, seq_len, num_heads*head_dim=d_model] > [batch_size, seq_len, d_model]
         output = self.wo(attn_output)
         # dropout
         output = self.out_dropout(output)
         
-        return output,k,v
+        return output,kv_cache
 
 
 

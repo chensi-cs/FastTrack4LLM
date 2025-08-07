@@ -23,6 +23,8 @@ class TrainConfig(PretrainedConfig):
         self.evaluate_val = False
         self.evaluate_test = False
         self.use_amp = True
+        self.loss_mask = False # 是否使用loss mask
+        self.attn_mask = False # 是否使用attention mask
         # self.num_workers = 4
 
         # 模型参数
@@ -31,25 +33,29 @@ class TrainConfig(PretrainedConfig):
         self.max_seq_len = 512 # max length of input sequence
         self.max_position_len = 32768 # max length of position embedding
         self.vocab_size = 6400 # vocabulary size
-        self.num_heads = 8 # number of heads for multi-head attention
         self.hidden_dim = 1024 # hidden dimension for feedforward network
         self.num_layers = 8 # number of layers
         self.dropout = 0.0 # dropout rate
         self.position_type = 'rope'
         self.activation = 'silu'
         self.use_kv_cache = False
-        self.flash_att = False
+        self.flash_att = True
         self.iscausal = True
         self.istrain = True
 
         # MoE参数
         self.use_moe = False
         self.num_experts = 4
-        self.num_independent_experts = 3
+        self.num_independent_experts = 1
         self.num_shared_experts = 1
         self.experts_topk = 1
         self.norm_topk_prob = True # 是否标准化top-k概率
         self.aux_loss_alpha = 0.1
+
+        # Attention参数
+        self.attention_type = 'MHA'
+        self.num_heads = 8 # number of heads for multi-head attention
+        self.num_groups = 4
 
         
         # 路径参数
@@ -81,8 +87,8 @@ class TrainConfig(PretrainedConfig):
 class ChatConfig(TrainConfig):
     def __init__(self):
         super().__init__()
-        self.temperature = 0.7
-        self.top_p = 0.9
+        self.temperature = 0.85
+        self.top_p = 0.85
         self.max_generate_len = 1024
         self.chat_mode = 0
 

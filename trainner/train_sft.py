@@ -79,7 +79,10 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'）， 默认是 reduction: str = "mean"
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
     # 因为设置了loss_mask,所以将reduction设置为'none'，在计算损失时，使用loss_mask来计算需要忽略的损失值
-    criterion =  nn.CrossEntropyLoss(reduction='none')
+    if config.loss_mask:
+        criterion = nn.CrossEntropyLoss(reduction='none')
+    else:
+        criterion =  nn.CrossEntropyLoss(ignore_index=0)  # 忽略填充的token，填充的token通常是0
     train_loss = 0.0
     avg_loss = 0.0
 
@@ -93,11 +96,17 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     start_time = datetime.now()
 
     for batch_idx, batch in enumerate(train_loader):
+
         x, y, attention_mask, loss_mask = batch
+
         x = x.to(device)
         y = y.to(device)
         attention_mask = attention_mask.to(device)
+        if config.attn_mask== False:
+            attention_mask = None
+
         loss_mask = loss_mask.to(device)
+
         
         lr = get_lr((epoch-1)* iter_per_epoch + batch_idx, config.num_epochs * iter_per_epoch , config.lr )
         writer.add_scalar("LearningRate", lr, batch_idx)
@@ -111,10 +120,20 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
                 output = model(input_ids=x, attention_mask=attention_mask)    
         else:
             output = model(input_ids=x, attention_mask=attention_mask)    
-        output = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
-        running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
-        
+        #  output =  [batch_size, seq_len, vocab_size]
 
+        output = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
+        
+        if config.loss_mask:
+            # output.view(-1,output.size(-1)) = [batch_size, seq_len, vocab_size] > [batch_size * seq_len, vocab_size]
+            # y.view(-1) = [batch_size, seq_len] > [batch_size * seq_len]
+            # running_loss  [batch_size * seq_len]
+            running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1)) 
+            # 将损失值的形状调整为 [batch_size, seq_len]
+            running_loss = running_loss.view(y.size())  # 将损失值的形状调整为 [batch_size, seq_len]
+            running_loss = ((running_loss * loss_mask ) / loss_mask.sum()).sum()  # 计算平均损失
+        else:
+            running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
 
         epoch_loss_list.append(running_loss.item())
 
@@ -244,7 +263,7 @@ def sft(config):
     if config.model == 'llama1':
         model =  Llama1ForCausalLM(config)
         # 加载预训练模型
-        pretrain_path  = f'{config.model_result_path}/llama1_model.pt'
+        pretrain_path  = f'{config.model_result_path}/llama1_pretrain.pt'
         model.load_state_dict(torch.load(pretrain_path, map_location=device),strict=True)
     else:
         raise ValueError(f"Model {config.model} not supported")
@@ -346,7 +365,7 @@ def sft(config):
 
             # 保存模型
             model.eval()  # 切换到推理模式
-            model_save_path = os.path.join(config.model_save_path, f"{config.model}_model_epoch_{epoch}.pt")
+            model_save_path = os.path.join(config.model_save_path, f"{config.model}_sft_epoch_{epoch}.pt")
             torch.save(model.state_dict(), model_save_path)
             logger.info("-"*100)
         
@@ -356,7 +375,7 @@ def sft(config):
     finally:
         # 保存模型
         model.eval()  # 切换到推理模式
-        model_save_path = os.path.join(config.model_save_path, f"{config.model}_model.pt")
+        model_save_path = os.path.join(config.model_save_path, f"{config.model}_sft.pt")
         torch.save(model.state_dict(), model_save_path)
 
         if writer is not None:
@@ -368,13 +387,15 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=2)
     parser.add_argument("--hidden_dim", type=int, default=1024)
     parser.add_argument("--accumulation_steps", type=int, default=8)
-    
+    parser.add_argument("--loss_mask", type=bool, default=False)
+    parser.add_argument("--attn_mask", type=bool, default=False)
+    parser.add_argument("--model", type=str, default='llama3')
     args = parser.parse_args()
 
     set_seed(42)
     config = TrainConfig()
-    # config.data_path = "data/model_data/demo/train.json"
-    config.data_path = "data/llm_data/processed/pretrain_hq.json"
+    # config.data_path = "data/llm_data/processed/demo_data/sft_mini_512.json"
+    config.data_path = "data/llm_data/processed/sft_mini_512.json"
     # config.val_path = "data/model_data/demo/val.json"
     # config.test_path = "data/model_data/demo/test.json"
 
@@ -387,18 +408,23 @@ if __name__ == "__main__":
     # config.hidden_dim = 10
     # config.max_seq_len = 10
     # config.kv_cache = True  
+
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
     config.hidden_dim = args.hidden_dim
-    config.flash_att = True
     config.accumulation_steps = args.accumulation_steps
+    config.loss_mask = args.loss_mask
+    config.attn_mask = args.attn_mask
+    config.model = args.model
+
+    config.flash_att = True
     
     # 根据batch_size和accumulation_steps计算学习率
     # config.lr = config.base_lr * ( config.batch_size * config.accumulation_steps / config.base_batch_size)  
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    config.log_dir = os.path.join("logs", f"sft_{now_timestamp}")
+    config.log_dir = os.path.join("logs", f"sft_{now_timestamp}_{config.model}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
 
     # 初始化全局logger

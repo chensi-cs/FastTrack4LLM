@@ -175,7 +175,7 @@ class MoEFeedForward(nn.Module):
         raw_x = x
         raw_x_shape = raw_x.shape
         batch_size, seq_len, d_model = x.shape
-        topk_weight,topk_index = self.gate(x)
+        topk_weight,topk_index,aux_loss = self.gate(x)
         # topk_weight , topk_index [batch_size * seq_len, experts_topk]
 
         # [batch_size, seq_len, d_model] > [batch_size * seq_len, d_model]

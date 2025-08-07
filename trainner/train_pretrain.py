@@ -4,6 +4,7 @@ import json
 import torch
 import torch.nn as nn
 from datetime import datetime
+from datetime import datetime
 import argparse
 import torch.optim as optim
 from torch.utils.data import DataLoader 
@@ -97,6 +98,8 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         x = x.to(device)
         y = y.to(device)
         attention_mask = attention_mask.to(device)
+        if config.attn_mask == False:
+            attention_mask = None
         
         lr = get_lr((epoch-1)* iter_per_epoch + batch_idx, config.num_epochs * iter_per_epoch , config.lr )
         writer.add_scalar("LearningRate", lr, batch_idx)
@@ -366,7 +369,10 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=2)
     parser.add_argument("--hidden_dim", type=int, default=1024)
     parser.add_argument("--accumulation_steps", type=int, default=8)
-    
+    parser.add_argument("--model", type=str, default='llama3')
+    parser.add_argument("--attn_mask", type=bool, default=False)
+    parser.add_argument("--use_moe", type=bool, default=False)
+
     args = parser.parse_args()
 
     set_seed(42)
@@ -388,15 +394,18 @@ if __name__ == "__main__":
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
     config.hidden_dim = args.hidden_dim
-    config.flash_att = True
     config.accumulation_steps = args.accumulation_steps
+    config.model = args.model
+    config.attn_mask = args.attn_mask
+    config.use_moe = args.use_moe
+
     
     # 根据batch_size和accumulation_steps计算学习率
     # config.lr = config.base_lr * ( config.batch_size * config.accumulation_steps / config.base_batch_size)  
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    config.log_dir = os.path.join("logs", f"train_{now_timestamp}")
+    config.log_dir = os.path.join("logs", f"train_{now_timestamp}_{config.model}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
 
 

@@ -21,6 +21,6 @@ def print_and_save_json(input_file, output_file):
         json.dump(result, f, indent=4, ensure_ascii=False)
 
 if __name__ == '__main__':
-    input_file = "../data/llm_data/processed/pretrain_hq.json" 
-    output_file = "../data/llm_data/processed/demo_data/pretrain_hq_demo.json"  
+    input_file = "../data/llm_data/processed/sft_mini_512.json" 
+    output_file = "../data/llm_data/processed/demo_data/sft_mini_512.json"  
     print_and_save_json(input_file, output_file)

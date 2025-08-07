@@ -99,7 +99,7 @@ class Llama3Block(nn.Module):
         self.ffn = MoEFeedForward(config) if config.use_moe else FeedForward(config)
         self.norm = RMSNorm(dim=self.d_model)
 
-    def forward(self,x,kv_cache,attention_mask):
+    def forward(self,x,kv_cache,attention_mask):    
         # Pre-normalization + RMSNorm
         x = self.norm(x)
         # 注意力机制
@@ -144,6 +144,7 @@ class Llama3Model(nn.Module):
     
 class Llama3ForCausalLM(PreTrainedModel,GenerationMixin):
     def __init__(self,config):
+        self.config = config
         super().__init__(self.config)
         self.model = Llama3Model(config)
     def forward(self,

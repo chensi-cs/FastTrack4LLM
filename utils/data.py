@@ -61,6 +61,7 @@ class SFTDataset(Dataset):
     
     def _get_loss_mask(self,input_ids):
         # 为了让模型专注学习 “如何生成正确的回答” ，loss只关注输出
+        input_ids = input_ids.tolist()  # 转换为列表
         loss_mask = [0] * len(input_ids)
         i = 0
         while i < len(input_ids):
@@ -72,26 +73,31 @@ class SFTDataset(Dataset):
                         break
                     end += 1
                 # range右开
-                for j in range(start+1,min(end + len(self.eos_id)+1 ,len(input_ids))):
+                for j in range(start+1,min(end + len(self.eos_id)+1 ,self.max_seq_len)):
                     loss_mask[j] = 1
                 i = end + len(self.eos_id) if end < len(input_ids) else len(input_ids)
             else:
                 i += 1
         return loss_mask
 
+
+
     def __getitem__(self,index):
         # 对话列表
+
         conversations = self.data[index]['conversations']
+
         messages = []
         for i , conversation in enumerate(conversations):
             role = 'user' if i % 2== 0 else 'assistant'
             messages.append({'role':role,'content':conversation['content']})
-        
+
         prompt = self.tokenizer.apply_chat_template(
             messages,
             add_generation_prompt=False , # 是否添加生成下一轮回复的提示标记
-            tokenize = True  # 是否直接返回token ID（False则返回文本字符串）
+            tokenize = False  # 是否直接返回token ID（False则返回文本字符串）
         )
+
         encoding = self.tokenizer(
             prompt,
             max_length=self.max_seq_len,
@@ -100,6 +106,7 @@ class SFTDataset(Dataset):
             return_tensors='pt'
         )
         input_ids = encoding.input_ids.squeeze()
+        # print("input_ids:", input_ids)
         x = input_ids[:-1].clone().detach()
         y = input_ids[1:].clone().detach()
         # 将pad_token的部分mask为0，不参与自注意力得分计算
@@ -108,7 +115,9 @@ class SFTDataset(Dataset):
 
         # 仅计算assistant回答部分的loss
         loss_mask = self._get_loss_mask(input_ids)
-        loss_mask = loss_mask[1:].clone().detach()
+
+
+        loss_mask = torch.tensor(loss_mask[1:]).clone().detach()
+        # print("loss_mask:", loss_mask)
         return x,y,attention_mask,loss_mask
 
-    
