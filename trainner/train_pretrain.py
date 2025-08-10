@@ -112,9 +112,12 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             with autocast():
                 output = model(input_ids=x, attention_mask=attention_mask)    
         else:
-            output = model(input_ids=x, attention_mask=attention_mask)    
-        output = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
-        running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
+            output = model(input_ids=x, attention_mask=attention_mask)   
+
+        logits = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
+        running_loss = criterion(logits.view(-1,logits.size(-1)),y.view(-1))
+        if config.add_aux_loss and output.loss is not None:
+            running_loss += output.loss
         epoch_loss_list.append(running_loss.item())
 
         # 梯度累积的操作之一
@@ -126,7 +129,6 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             scaler.scale(loss).backward()
         else :
             loss.backward() 
-
 
         if (batch_idx+1) % accumulation_steps == 0:
             if config.use_amp:
@@ -372,6 +374,7 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, default='llama3')
     parser.add_argument("--attn_mask", type=bool, default=False)
     parser.add_argument("--use_moe", type=bool, default=False)
+    parser.add_argument("--add_aux_loss", type=bool, default=False)
 
     args = parser.parse_args()
 
@@ -398,6 +401,7 @@ if __name__ == "__main__":
     config.model = args.model
     config.attn_mask = args.attn_mask
     config.use_moe = args.use_moe
+    config.add_aux_loss = args.add_aux_loss
 
     
     # 根据batch_size和accumulation_steps计算学习率

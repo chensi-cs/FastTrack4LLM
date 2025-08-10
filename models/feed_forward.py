@@ -50,8 +50,8 @@ class MoEGate(nn.Module):
         # torch.empty 创建一个未初始化的张量（tensor），仅分配内存但不赋予初始值
         # 将张量转换为 PyTorch 的 Parameter 类型，使其成为模型的可学习参数—— 会被自动注册到模型的参数列表中，参与反向传播和梯度更新。
         # self.weightMoE门控网络中最核心的可学习参数,用于判断 “输入应该由哪个专家处理”
-        # [num_experts,d_model]
-        self.weight = nn.Parameter(torch.empty((self.num_experts,self.d_model)))
+        # [num_independent_experts,d_model]
+        self.weight = nn.Parameter(torch.empty((self.num_independent_experts,self.d_model)))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -66,10 +66,10 @@ class MoEGate(nn.Module):
         x = x.view(batch_size * seq_len, d_model)
 
         # F.linear(x,self.weight,None)：PyTorch 的 F.linear 函数，用于执行矩阵乘法 + 偏置加法的线性变换操作，公式为：output = hidden_states × weight^T + bias, None 表示不使用偏置
-        # logits：MoE门控网络的输出，表示每个专家的得分
-        # x: [batch_size * seq_len, d_model] , self.weight: [num_experts,d_model] , logits: [batch_size * seq_len, num_experts]
+        # x: [batch_size * seq_len, d_model] , self.weight: [num_independent_experts,d_model] , logits: [batch_size * seq_len, num_independent_experts]
+        # logits：MoE门控网络的输出，表示每个专家的得分，输入总共有batch_size * seq_len个token，每个token都对应了num_independent_experts个专家的得分
         logits = F.linear(x,self.weight,None)
-        # [batch_size * seq_len, num_experts]
+        # [batch_size * seq_len, num_independent_experts]
         scores = logits.softmax(dim=-1)
 
         # torch.topk： 从张量中提取前 K 个最大值的函数
@@ -95,17 +95,17 @@ class MoEGate(nn.Module):
             思想：将专家的负载视为概率分布（expert_load），通过 KL 散度衡量其与理想均匀分布的差异，分布越不均衡，KL 散度越大，损失越大
             # 计算每个专家的负载（即被路由到该专家的样本数量）
             # 在样本维度（dim=0）做 softmax，得到每个样本对专家的概率分布，再归一化使得所有样本对专家的总 “贡献” 之和为 1。
-            # expert_load： [batch_size * seq_len, num_experts]
+            # expert_load： [batch_size * seq_len, num_independent_experts]
             expert_load =  logits.softmax(dim=0)
-            # expert_load： [batch_size * seq_len, num_experts] > [num_experts]
+            # expert_load： [batch_size * seq_len, num_independent_experts] > [num_independent_experts]
             expert_load_mean = expert_load.mean(dim=0)
 
             # 定义理想负载
-            # 理想情况下，每个专家的负载应该相等, expert_load： [batch_size * seq_len, num_experts]
-            # ideal_load： [num_experts]
-            ideal_load = torch.ones_like(expert_load_mean) / self.num_experts
+            # 理想情况下，每个专家的负载应该相等, expert_load： [batch_size * seq_len, num_independent_experts]
+            # ideal_load： [num_independent_experts]
+            ideal_load = torch.ones_like(expert_load_mean) / self.num_independent_experts
 
-            # expert_load_mean_log： [num_experts]
+            # expert_load_mean_log： [num_independent_experts]
             expert_load_mean_log = expert_load_mean.log()
 
             # 计算负载均衡损失
@@ -124,16 +124,16 @@ class MoEGate(nn.Module):
             topk_idx_for_aux = topk_index.view(batch_size,-1)
             # [batch_size, seq_len * experts_topk] > [batch_size * seq_len * experts_topk]
             topk_idx_for_aux = topk_idx_for_aux.view(-1)
-            #  [batch_size * seq_len * experts_topk] > topk_indx_one_hot [batch_size * seq_len * experts_topk, num_experts]
-            topk_indx_one_hot = F.one_hot(topk_idx_for_aux, num_classes=self.num_experts)
-            # [batch_size * seq_len * experts_topk, num_experts] > topk_indx_one_hot_sum [num_experts],即每个专家的实际选择频率的平均值
+            #  [batch_size * seq_len * experts_topk] > topk_indx_one_hot [batch_size * seq_len * experts_topk, num_independent_experts]
+            topk_indx_one_hot = F.one_hot(topk_idx_for_aux, num_classes=self.num_independent_experts)
+            # [batch_size * seq_len * experts_topk, num_independent_experts] > topk_indx_one_hot_sum [num_independent_experts],即每个专家的实际选择频率的平均值
             topk_indx_one_hot_mean = topk_indx_one_hot.float().mean(0)
-            # 负载,即每个专家的实际选择频率*专家总数,理想值为1  [num_experts]
-            fi = topk_indx_one_hot_mean * self.num_experts
-            # 偏好,即门控网络对每个专家的平均偏好  [num_experts]
+            # 负载,即每个专家的实际选择频率*专家总数,理想值为1  [num_independent_experts]
+            fi = topk_indx_one_hot_mean * self.num_independent_experts
+            # 偏好,即门控网络对每个专家的平均偏好  [num_independent_experts]
             pi = scores_for_aux.mean(0)
             # 损失 = 偏好 × 相对负载 的总和（惩罚高偏好且高负载的专家）
-            # pi * fi :  [num_experts]
+            # pi * fi :  [num_independent_experts]
             # aux_loss:  标量
             aux_loss = (pi * fi).sum() * self.aux_loss_alpha
             
@@ -169,9 +169,9 @@ class MoEFeedForward(nn.Module):
                 shared_experts_output += expert(x)
         # 对共享专家的输出进行平均
         # shared_experts_output 的维度和输入一样，都是 [batch_size, seq_len, d_model]，他是所有共享专家输出的和的平均
-        shared_experts_output /= self.num_shared_experts
-
+            shared_experts_output /= self.num_shared_experts
         # 处理独立专家
+
         raw_x = x
         raw_x_shape = raw_x.shape
         batch_size, seq_len, d_model = x.shape
@@ -189,7 +189,7 @@ class MoEFeedForward(nn.Module):
         # 复制输入，每个token被复制top_k次（与选中的专家数量匹配）
         # [batch_size * seq_len, d_model] > [batch_size * seq_len * experts_topk, d_model]
         x = x.repeat_interleave(self.experts_topk,dim=0)
-
+        
         # [batch_size * seq_len * experts_topk, d_model]
         # 初始化输出，大小与复制后的输入相同
         y = torch.empty_like(x,dtype=torch.float16)
@@ -204,14 +204,13 @@ class MoEFeedForward(nn.Module):
         # y.view(batch_size * seq_len,self.experts_topk,d_model): [batch_size * seq_len * experts_topk, d_model] > [batch_size * seq_len, experts_topk, d_model]
         # topk_weight.unsqueeze(-1) : [batch_size * seq_len, experts_topk] > [batch_size * seq_len, experts_topk, 1]
         # y.view(batch_size * seq_len,self.experts_topk,d_model) * topk_weight.unsqueeze(-1) : [batch_size * seq_len, experts_topk, d_model]
-        # .sum(dim=1): [batch_size * seq_len, d_model]
-        # .sum(dim=1) 乘权重后在top_k维度求和，得到每个token的最终输出
-        y = (y.view(batch_size * seq_len,self.experts_topk,d_model)) * topk_weight.unsqueeze(-1).sum(dim=1)
+        # .sum(dim=1): [batch_size * seq_len, d_model] 乘权重后在top_k维度求和，得到每个token的最终输出
+        y = ((y.view(batch_size * seq_len,self.experts_topk,d_model))*(topk_weight.unsqueeze(-1))).sum(dim=1)
         # y 的维度和输入一样，都是 [batch_size, seq_len, d_model]
         y = y.view(raw_x_shape)
         if self.num_shared_experts > 0:
             y += shared_experts_output
-        return y      
+        return y , aux_loss     
 
         
         

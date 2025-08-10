@@ -97,6 +97,7 @@ class Llama3Block(nn.Module):
         freqs_sin = freqs_sin.to(self.device)
         self.attention = GroupedQueryAttention(config,freqs_cos,freqs_sin)
         self.ffn = MoEFeedForward(config) if config.use_moe else FeedForward(config)
+        self.use_moe = config.use_moe
         self.norm = RMSNorm(dim=self.d_model)
 
     def forward(self,x,kv_cache,attention_mask):    
@@ -109,10 +110,14 @@ class Llama3Block(nn.Module):
         # Pre-normalization + RMSNorm
         x = self.norm(x)
         # 前馈神经网络
-        ffn_out = self.ffn(x)
+        if self.use_moe:
+            ffn_out, aux_loss = self.ffn(x)
+        else:
+            ffn_out = self.ffn(x)
+            aux_loss = None
         # 残差连接
         x = x + ffn_out
-        return x,kv_cache
+        return x,kv_cache,aux_loss
 
 class Llama3Model(nn.Module):
     def __init__(self,config):
@@ -121,6 +126,7 @@ class Llama3Model(nn.Module):
         self.d_model = config.d_model
         self.vocab_size = config.vocab_size
         self.num_layers = config.num_layers
+        self.use_moe = config.use_moe
         self.token_embedding = nn.Embedding(self.vocab_size,self.d_model)
         self.max_position_len = config.max_position_len
         self.num_heads = config.num_heads
@@ -135,12 +141,15 @@ class Llama3Model(nn.Module):
         attention_mask: Optional[torch.Tensor] = None):
         x = self.token_embedding(input_ids)
         kv_cache=None
+        aux_loss_sum = 0.0 if self.use_moe else None
         for layer in self.layers:
-            x,kv_cache = layer(x,kv_cache,attention_mask)
+            x,kv_cache,aux_loss = layer(x,kv_cache,attention_mask)
+            if aux_loss is not None:
+                aux_loss_sum += aux_loss
         # 计算output之前的归一化
         x = self.norm(x)
         output = self.output_layer(x)
-        return output,kv_cache
+        return output,kv_cache,aux_loss_sum
     
 class Llama3ForCausalLM(PreTrainedModel,GenerationMixin):
     def __init__(self,config):
@@ -151,7 +160,7 @@ class Llama3ForCausalLM(PreTrainedModel,GenerationMixin):
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         **kwargs):
-        logits,kv_cache = self.model(
+        logits,kv_cache,aux_loss = self.model(
             input_ids = input_ids,
             attention_mask = attention_mask
         )
@@ -159,6 +168,7 @@ class Llama3ForCausalLM(PreTrainedModel,GenerationMixin):
             logits = logits,
             past_key_values = kv_cache,
             hidden_states=None,
-            attentions=None
+            attentions=None,
+            loss=aux_loss 
         )
         return out

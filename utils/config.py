@@ -45,12 +45,14 @@ class TrainConfig(PretrainedConfig):
 
         # MoE参数
         self.use_moe = False
-        self.num_experts = 4
-        self.num_independent_experts = 1
+        self.num_experts = 5
+        self.num_independent_experts = 4
         self.num_shared_experts = 1
-        self.experts_topk = 1
+        self.experts_topk = 2
         self.norm_topk_prob = True # 是否标准化top-k概率
         self.aux_loss_alpha = 0.1
+        self.add_aux_loss = False # 是否添加auxiliary loss
+
 
         # Attention参数
         self.attention_type = 'MHA'
