@@ -35,7 +35,7 @@ print("搜索路径:", sys.path)
 
 from utils.config import TrainConfig
 from utils.data import SFTDataset 
-from models.llama_model import Llama1Model, Llama1ForCausalLM
+from models.llama_model import Llama3ForCausalLM, Llama1ForCausalLM
 from utils.utils import EarlyStopping
 
 epoch_loss_list = []
@@ -109,7 +109,8 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
 
         
         lr = get_lr((epoch-1)* iter_per_epoch + batch_idx, config.num_epochs * iter_per_epoch , config.lr )
-        writer.add_scalar("LearningRate", lr, batch_idx)
+        if writer is not None:
+            writer.add_scalar("LearningRate", lr, batch_idx)
 
         # 遍历优化器中的所有参数组，然后把每个参数组的学习率（'lr'）都设定为新计算得出的值（lr）
         for param_group in optimizer.param_groups:
@@ -122,18 +123,21 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             output = model(input_ids=x, attention_mask=attention_mask)    
         #  output =  [batch_size, seq_len, vocab_size]
 
-        output = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
+        logits = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
         
         if config.loss_mask:
-            # output.view(-1,output.size(-1)) = [batch_size, seq_len, vocab_size] > [batch_size * seq_len, vocab_size]
+            # logits.view(-1,logits.size(-1)) = [batch_size, seq_len, vocab_size] > [batch_size * seq_len, vocab_size]
             # y.view(-1) = [batch_size, seq_len] > [batch_size * seq_len]
             # running_loss  [batch_size * seq_len]
-            running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1)) 
+            running_loss = criterion(logits.view(-1,logits.size(-1)),y.view(-1)) 
             # 将损失值的形状调整为 [batch_size, seq_len]
             running_loss = running_loss.view(y.size())  # 将损失值的形状调整为 [batch_size, seq_len]
             running_loss = ((running_loss * loss_mask ) / loss_mask.sum()).sum()  # 计算平均损失
         else:
-            running_loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
+            running_loss = criterion(logits.view(-1,logits.size(-1)),y.view(-1))
+
+        if config.add_aux_loss and output.loss is not None:
+            running_loss += output.loss
 
         epoch_loss_list.append(running_loss.item())
 
@@ -242,7 +246,7 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     
 
-def sft(config):
+def train(config):
     os.makedirs(config.model_save_path,exist_ok=True)
     os.makedirs(config.log_dir, exist_ok=True)
     os.makedirs(config.checkpoint_path, exist_ok=True)
@@ -262,13 +266,14 @@ def sft(config):
     device = config.device
     if config.model == 'llama1':
         model =  Llama1ForCausalLM(config)
-        # 加载预训练模型
-        pretrain_path  = f'{config.model_result_path}/llama1_pretrain.pt'
-        model.load_state_dict(torch.load(pretrain_path, map_location=device),strict=True)
+    elif config.model == 'llama3':
+        model =  Llama3ForCausalLM(config)
     else:
         raise ValueError(f"Model {config.model} not supported")
-    
-    
+    # 加载预训练模型
+
+    model.load_state_dict(torch.load(config.pretrain_path, map_location=device),strict=True)
+
     model.to(device)
     logger.info(f"Model {config.model} loaded")
     logger.info(f"Model infomation: {model}")
@@ -390,24 +395,17 @@ if __name__ == "__main__":
     parser.add_argument("--loss_mask", type=bool, default=False)
     parser.add_argument("--attn_mask", type=bool, default=False)
     parser.add_argument("--model", type=str, default='llama3')
+    parser.add_argument("--pretrain_path", type=str, default='all_models/llama3_pretrain.pt')
+    parser.add_argument("--use_moe", type=bool, default=False)
+    parser.add_argument("--lora_rank", type=int, default=8)
+    parser.add_argument("--add_aux_loss", type=bool, default=False)
+
     args = parser.parse_args()
 
     set_seed(42)
     config = TrainConfig()
     # config.data_path = "data/llm_data/processed/demo_data/sft_mini_512.json"
     config.data_path = "data/llm_data/processed/sft_mini_512.json"
-    # config.val_path = "data/model_data/demo/val.json"
-    # config.test_path = "data/model_data/demo/test.json"
-
-    # config.tokenizer_path = "data/"
-    # config.vocab_size = 6400
-    # config.model = 'llama1'
-    # config.d_model = 512
-    # config.num_heads = 1
-    # config.num_layers = 2
-    # config.hidden_dim = 10
-    # config.max_seq_len = 10
-    # config.kv_cache = True  
 
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
@@ -416,11 +414,11 @@ if __name__ == "__main__":
     config.loss_mask = args.loss_mask
     config.attn_mask = args.attn_mask
     config.model = args.model
+    config.use_moe = args.use_moe
+    config.pretrain_path = args.pretrain_path
+    config.lora_rank = args.lora_rank
+    config.add_aux_loss = args.add_aux_loss
 
-    config.flash_att = True
-    
-    # 根据batch_size和accumulation_steps计算学习率
-    # config.lr = config.base_lr * ( config.batch_size * config.accumulation_steps / config.base_batch_size)  
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -433,7 +431,7 @@ if __name__ == "__main__":
     start_time = datetime.now()
     logger.info(f"Fine-tuning started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     logging.info("Start fine-tuning...")
-    sft(config)
+    train(config)
     end_time = datetime.now()
     logger.info(f"Fine-tuning completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Total fine-tuning time: {end_time - start_time}")

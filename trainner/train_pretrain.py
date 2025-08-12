@@ -102,7 +102,8 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
             attention_mask = None
         
         lr = get_lr((epoch-1)* iter_per_epoch + batch_idx, config.num_epochs * iter_per_epoch , config.lr )
-        writer.add_scalar("LearningRate", lr, batch_idx)
+        if writer is not None:
+            writer.add_scalar("LearningRate", lr, batch_idx)
 
         # 遍历优化器中的所有参数组，然后把每个参数组的学习率（'lr'）都设定为新计算得出的值（lr）
         for param_group in optimizer.param_groups:
@@ -402,6 +403,7 @@ if __name__ == "__main__":
     config.attn_mask = args.attn_mask
     config.use_moe = args.use_moe
     config.add_aux_loss = args.add_aux_loss
+
 
     
     # 根据batch_size和accumulation_steps计算学习率

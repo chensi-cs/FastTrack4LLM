@@ -17,7 +17,7 @@ class TrainConfig(PretrainedConfig):
         self.grad_clip = 1.0
         self.ddp = False
         self.use_wandb = False # use Weights & Biases for logging 
-        self.use_tensorboard = True # use tensorboard for logging
+        self.use_tensorboard = False # use tensorboard for logging
         self.log_interval = 100 # log interval for training
         self.save_interval = 100
         self.evaluate_val = False
@@ -45,10 +45,10 @@ class TrainConfig(PretrainedConfig):
 
         # MoE参数
         self.use_moe = False
-        self.num_experts = 5
-        self.num_independent_experts = 4
+        self.num_experts = 4
+        self.num_independent_experts = 3
         self.num_shared_experts = 1
-        self.experts_topk = 2
+        self.experts_topk = 1
         self.norm_topk_prob = True # 是否标准化top-k概率
         self.aux_loss_alpha = 0.1
         self.add_aux_loss = False # 是否添加auxiliary loss
@@ -69,6 +69,10 @@ class TrainConfig(PretrainedConfig):
         self.model_result_path = 'all_models'
         self.log_dir = 'logs' # log directory
         self.checkpoint_path = 'checkpoints' # checkpoint path
+        self.pretrain_path = 'pretrained_models' # pretrained model path
+        
+        # lora
+        self.lora_rank = 8
 
         # 测试训练技巧
         # self.test_early_stopping = False
@@ -93,6 +97,10 @@ class ChatConfig(TrainConfig):
         self.top_p = 0.85
         self.max_generate_len = 1024
         self.chat_mode = 0
+        self.model_type = 'pretrain' # pretrain: 预训练, 'sft': 全量微调， 'lora': LoRA微调
+        self.istrain = False
+        self.pretrain_path = 'pretrained_models/llama3'  # 预训练模型路径
+        self.lora_path = 'saved_models/llama3_lora.pt'
 
 class Llama1Config(TrainConfig):
     def __init__(self):
