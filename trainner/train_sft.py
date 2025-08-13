@@ -38,8 +38,6 @@ from utils.data import SFTDataset
 from models.llama_model import Llama3ForCausalLM, Llama1ForCausalLM
 from utils.utils import EarlyStopping
 
-epoch_loss_list = []
-
 # 配置日志
 def setup_logger(log_dir):
     global logger
@@ -89,6 +87,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     accumulation_steps = config.accumulation_steps  # 梯度累积步数
 
     optimizer.zero_grad()
+    global epoch_loss_list
     epoch_loss_list = []
 
     iter_per_epoch = len(train_loader)

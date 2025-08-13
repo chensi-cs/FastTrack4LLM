@@ -74,6 +74,10 @@ class TrainConfig(PretrainedConfig):
         # lora
         self.lora_rank = 8
 
+        # 蒸馏
+        self.kl_alpha = 0.1
+        self.kl_temperature = 1
+
         # 测试训练技巧
         # self.test_early_stopping = False
         # self.test_grad_accumulation = False

@@ -40,7 +40,7 @@ from utils.data import PretrainDataset
 from models.llama_model import  Llama1ForCausalLM,Llama3ForCausalLM
 from utils.utils import EarlyStopping
 
-epoch_loss_list = []
+
 
 # 配置日志
 def setup_logger(log_dir):
@@ -76,8 +76,7 @@ def setup_tensorboard(log_dir):
 def get_lr(current_step,total_step,lr):
     return lr / 10 + 0.5 * lr * ( 1+ np.cos(np.pi * current_step / total_step))
 
-
-def train_one_epoch(model,teacher_model,train_loader,optimizer,device,epoch,config):
+def train_one_epoch(train_loader,optimizer,device,epoch,config):
     model.train()
     # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'），默认是 reduction: str = "mean"
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
@@ -89,6 +88,7 @@ def train_one_epoch(model,teacher_model,train_loader,optimizer,device,epoch,conf
     accumulation_steps = config.accumulation_steps  # 梯度累积步数
 
     optimizer.zero_grad()
+    global epoch_loss_list 
     epoch_loss_list = []
 
     iter_per_epoch = len(train_loader)
@@ -121,10 +121,11 @@ def train_one_epoch(model,teacher_model,train_loader,optimizer,device,epoch,conf
         else:
             output = model(input_ids=x, attention_mask=attention_mask)   
         logits = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
-
+        # logger.info(f"学生模型输出：{output}")
         if teacher_model is not None:
             with torch.no_grad():
                 teacher_output = teacher_model(input_ids=x, attention_mask=attention_mask)
+                # logger.info(f"教师模型输出：{teacher_output}")
                 teather_logits = teacher_output.logits
         
         # 计算蒸馏的损失
@@ -135,20 +136,25 @@ def train_one_epoch(model,teacher_model,train_loader,optimizer,device,epoch,conf
             loss_hard += output.loss
         epoch_loss_list.append(loss_hard.item())
 
+        # logger.info(f"硬标签损失: {loss_hard.item()}")
+
         loss_soft = torch.tensor(0.0,device=config.device)
         # 软标签损失，通过KLDivLoss计算
         if teacher_model is not None:
             with torch.no_grad():
                 # .detach() 是 PyTorch 中张量的一个方法，作用是将张量从计算图中分离出来，使其不再参与梯度计算
-                teacher_logits = F.softmax(teacher_logits / config.temperature, dim=-1).detach()
-            student_logits = F.log_softmax(logits / config.temperature, dim=-1)
+                teather_logits = F.softmax(teather_logits / config.kl_temperature, dim=-1).detach()
+            student_logits = F.log_softmax(logits / config.kl_temperature, dim=-1)
             # 计算KL散度,reduction='batchmean'表示对batch中的每个样本进行平均,计算所有元素的 KL 散度之和，再除以元素总数量（即 batch_size × num_classes），得到平均值。
-            loss_soft = F.kl_div(student_logits, teacher_logits, reduction='batchmean')
-        
+            loss_soft = F.kl_div(student_logits, teather_logits, reduction='batchmean')
+        # logger.info(f"软标签损失: {loss_soft.item()}")
+
         # 计算蒸馏损失 = kl_alpha * 硬标签损失 + (1- kl_alpha) * 软标签损失
         running_loss = config.kl_alpha * loss_hard + (1-config.kl_alpha) * loss_soft
+        # logger.info(f"蒸馏总损失: {running_loss.item()}")
+
         # 梯度累积
-        loss = loss / accumulation_steps
+        loss = running_loss / accumulation_steps
 
         if config.use_amp:
             #  使用scaler.scale()方法来缩放损失值
@@ -221,12 +227,26 @@ def set_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    
+
+
+def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 5))
+    plt.plot(history, label='Train Loss', color='blue')
+    plt.xlabel('Batch Index')
+    plt.ylabel('Train Loss')
+    plt.title(f'Epoch {epoch_idx} Training  Loss')
+    plt.legend()
+    plt.grid()
+    plt.savefig(save_path)
+    plt.close()
+
+
 def init_studentconfig(args):
     config = TrainConfig()
-    # config.data_path = "data/model_data/demo/train.json"
-    config.data_path = "data/llm_data/processed/pretrain_hq.json"
-    config.pretrain_path = 'all_models/model.pt'
+    config.data_path = "data/model_data/demo/train.json"
+    # config.data_path = "data/llm_data/processed/pretrain_hq.json"
+    config.pretrain_path = 'all_logs/train_20250812_033938_llama3/saved_models/llama3_model.pt'
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
     config.hidden_dim = args.hidden_dim
@@ -241,7 +261,7 @@ def init_studentconfig(args):
 
 def init_teacherconfig(args):
     config = TrainConfig()
-    config.pretrain_path = 'all_models/model.pt'
+    config.pretrain_path = 'all_logs/train_20250813_010827_llama3/saved_models/llama3_model.pt'
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
     config.hidden_dim = 3072
@@ -265,8 +285,9 @@ def init_student_model(config):
     model.load_state_dict(state_dict,strict=True)
     total_params_count = sum(p.numel() for p in model.parameters())
 
-    logger.info(f"已成功加载学生模型，学生模型的参数量大小：{total_params_count}")
+    logger.info(f"已成功加载学生模型，学生模型的参数量大小：{total_params_count:.3f} M")
     model.to(config.device)
+    return model
 
 def init_teachter_model(config):
     if config.model == 'llama1':
@@ -275,11 +296,12 @@ def init_teachter_model(config):
         model = Llama3ForCausalLM(config)
     else:
         raise ValueError(f"Model {config.model} not supported")
-    state_dict = torch.load(config.pretrain_path,map_location = config.devide)
+    state_dict = torch.load(config.pretrain_path,map_location = config.device)
     model.load_state_dict(state_dict,strict=True)
     total_params_count = sum(p.numel() for p in model.parameters())
-    logger.info(f"已成功加载教师模型，教师模型的参数量大小：{total_params_count}")
+    logger.info(f"已成功加载教师模型，教师模型的参数量大小：{total_params_count:.3f} M")
     model.to(config.device)
+    return model
 
 
 def evaluate(model,val_loader,device,config):
@@ -319,7 +341,7 @@ def train(config):
         wandb = None
     # 训练逻辑
     device = config.device
-
+    logger.info(f"学生模型参数: {config}")
     logger.info("Loading datasets...")
     train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
     train_loader = DataLoader(
@@ -365,8 +387,10 @@ def train(config):
         logger.info(f"{name}: {param.size()}")
     try:
         for epoch in range(1,1+config.num_epochs):
-            train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
+            train_loss = train_one_epoch(train_loader,optimizer,device,epoch,config)
             history['train_loss'].append(train_loss)
+
+            plot_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
             logger.info(f"Epoch {epoch}, average train loss: {train_loss}")
             
             
@@ -425,10 +449,10 @@ if __name__ == "__main__":
     parser.add_argument("--attn_mask", type=bool, default=False)
     parser.add_argument("--use_moe", type=bool, default=False)
     parser.add_argument("--add_aux_loss", type=bool, default=False)
-    parser.add_argument("--add_aux_loss", type=bool, default=False)
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--hidden_dim", type=int, default=1024)
     parser.add_argument("--num_layers", type=int, default=8)
+    
 
     args = parser.parse_args()
 
@@ -438,7 +462,7 @@ if __name__ == "__main__":
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    student_config.log_dir = os.path.join("logs", f"distillation_{now_timestamp}_{student_config.model}")
+    student_config.log_dir = os.path.join("logs", f"distill_{now_timestamp}_{student_config.model}")
     os.makedirs(student_config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
     
     teacher_config = init_teacherconfig(args)

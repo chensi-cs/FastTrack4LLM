@@ -39,7 +39,6 @@ from utils.data import PretrainDataset
 from models.llama_model import  Llama1ForCausalLM,Llama3ForCausalLM
 from utils.utils import EarlyStopping
 
-epoch_loss_list = []
 
 # 配置日志
 def setup_logger(log_dir):
@@ -87,6 +86,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     accumulation_steps = config.accumulation_steps  # 梯度累积步数
 
     optimizer.zero_grad()
+    global epoch_loss_list
     epoch_loss_list = []
 
     iter_per_epoch = len(train_loader)
@@ -370,12 +370,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Model Pretraining")
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_epochs", type=int, default=2)
-    parser.add_argument("--hidden_dim", type=int, default=1024)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--model", type=str, default='llama3')
     parser.add_argument("--attn_mask", type=bool, default=False)
     parser.add_argument("--use_moe", type=bool, default=False)
     parser.add_argument("--add_aux_loss", type=bool, default=False)
+    parser.add_argument("--d_model", type=int, default=512)
+    parser.add_argument("--hidden_dim", type=int, default=1024)
+    parser.add_argument("--num_layers", type=int, default=8)
+    parser.add_argument("--lr", type=float, default=5e-4)
+    
 
     args = parser.parse_args()
 
@@ -397,12 +401,15 @@ if __name__ == "__main__":
     # config.kv_cache = True  
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
-    config.hidden_dim = args.hidden_dim
     config.accumulation_steps = args.accumulation_steps
     config.model = args.model
     config.attn_mask = args.attn_mask
     config.use_moe = args.use_moe
     config.add_aux_loss = args.add_aux_loss
+    config.d_model = args.d_model
+    config.hidden_dim = args.hidden_dim
+    config.num_layers = args.num_layers
+    config.lr = args.lr
 
 
     
