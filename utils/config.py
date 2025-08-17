@@ -1,14 +1,15 @@
 import torch
 from transformers import PretrainedConfig
 
-class TrainConfig(PretrainedConfig):
+class Config(PretrainedConfig):
+    """ 基础配置类，继承自PretrainedConfig，方便与transformers库集成"""
     def __init__(self):
         super().__init__()
         # 训练参数
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.batch_size = 32 # batch size
         self.base_batch_size = 32 # base batch size
-        self.num_epochs = 2 # number of epochs
+        self.num_epochs = 1 # number of epochs
         self.lr = 5e-4 # learning rate
         self.base_lr = 5e-4 # base learning rate
         self.accumulation_steps = 8 # gradient accumulation steps
@@ -97,7 +98,98 @@ class TrainConfig(PretrainedConfig):
     def __repr__(self):
         return self.__str__()
 
-class ChatConfig(TrainConfig):
+
+class PretrainConfig(Config):
+    """预训练配置，继承基础配置并覆盖特定参数"""
+    def __init__(self):
+        super().__init__()
+        # 预训练通常需要更大的batch和更多的epoch
+        self.batch_size = 128
+
+        # 预训练学习率通常较高
+        self.lr = 5e-4
+        
+        # 预训练数据路径通常不同
+        self.data_path = 'data/llm_data/processed/pretrain_hq.json'
+        
+
+class SFTConfig(Config):
+    """全量微调配置"""
+    def __init__(self):
+        super().__init__()
+        # 全量微调batch通常较小
+        self.batch_size = 32
+        self.num_epochs = 2
+
+        # 全量微调学习率低于预训练
+        self.lr = 5e-7
+
+        # 微调数据路径
+        self.data_path = 'data/llm_data/processed/sft_mini_512.json'
+        # 预训练模型路径
+        self.pretrain_path = 'all_models/llama3_pretrain.pt'
+        
+
+
+class LoraConfig(Config):
+    """LoRA微调配置"""
+    def __init__(self):
+        super().__init__()
+        # LoRA可以使用更大的batch（因为计算量小）
+        self.batch_size = 64
+        self.num_epochs = 10
+        
+        # LoRA学习率高于全量微调
+        self.lr = 1e-4
+        
+        # 微调数据路径
+        self.data_path = 'data/llm_data/processed/sft_mini_512.json'
+        # 预训练模型路径
+        self.pretrain_path = 'all_models/llama3_pretrain.pt'
+
+
+class DPOConfig(Config):
+    """DPO（偏好优化）配置"""
+    def __init__(self):
+        super().__init__()
+        # DPO数据量通常较小，batch也较小
+        self.batch_size = 16
+        self.num_epochs = 2
+        
+        # DPO学习率非常低
+        self.lr = 1e-8
+        
+        # 微调数据路径
+        self.data_path = 'data/llm_data/processed/dpo.json'
+        # 预训练模型路径
+        self.pretrain_path = 'all_models/llama3_pretrain.pt'
+
+
+class DistillConfig(Config):
+    """蒸馏配置"""
+    def __init__(self):
+        super().__init__()
+        self.batch_size = 64
+        self.num_epochs = 6
+        self.accumulation_steps = 1
+
+        # 蒸馏学习率介于预训练和微调之间
+        self.lr = 5e-6
+
+        # 蒸馏数据路径（通常由教师模型生成）
+        self.data_path = 'data/llm_data/processed/sft_mini_512.json'
+        # 预训练模型路径
+        self.teacher_path = 'all_logs/train_20250813_010827_llama3/saved_models/llama3_model.pt'
+        # 学生模型路径（通常是一个较小的模型）
+        self.student_path = 'all_models/llama3_pretrain.pt'
+
+        # 蒸馏特有参数
+        self.teacher_d_model = 768
+        self.teacher_hidden_dim = 3072
+        self.teacher_num_layers = 16
+
+  
+class ChatConfig(PretrainConfig):
     def __init__(self):
         super().__init__()
         self.temperature = 0.85
@@ -109,19 +201,13 @@ class ChatConfig(TrainConfig):
         self.pretrain_path = 'pretrained_models/llama3'  # 预训练模型路径
         self.lora_path = 'saved_models/llama3_lora.pt'
 
-class Llama1Config(TrainConfig):
+class Llama1Config(PretrainConfig):
     def __init__(self):
         super().__init__()
         self.model = 'llama1'
         self.num_layers = 8
 
-class Llama2Config(TrainConfig):
-    def __init__(self):
-        super().__init__()
-        self.model = 'llama2'
-        self.num_layers = 8
-
-class Llama3Config(TrainConfig):
+class Llama3Config(PretrainConfig):
     def __init__(self):
         super().__init__()
         self.model = 'llama3'

@@ -33,7 +33,7 @@ sys.path.append(project_root)
 print("项目根目录:", project_root)
 print("搜索路径:", sys.path)
 
-from utils.config import TrainConfig
+from utils.config import LoraConfig
 from utils.data import SFTDataset 
 from models.llama_model import Llama1ForCausalLM,Llama3ForCausalLM
 from utils.utils import EarlyStopping
@@ -187,12 +187,9 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
                 wandb.log({"train_loss": running_loss.item(), "epoch": epoch, "batch_idx": batch_idx})
             if writer:
                 writer.add_scalar('Batch Loss', running_loss.item(), batch_idx)
-            logger.info(f"Epoch [{epoch}/{config.num_epochs}] ({batch_idx+1}/{iter_per_epoch}) Train Loss: {running_loss.item():.5f} LR: {lr:.12f} ")
-            
-            if (batch_idx+1) ==  config.log_interval :
-                end_time = datetime.now()
-                logger.info(f"Epoch [{epoch}/{config.num_epochs}] Batch {100} duration: {(end_time - start_time).total_seconds() / 60} minutes")
-
+            end_time = datetime.now()
+            logger.info(f"Epoch [{epoch}/{config.num_epochs}] ({batch_idx+1}/{iter_per_epoch}) Train Loss: {running_loss.item():.5f} LR: {lr:.12f} Duration: {(end_time - start_time).total_seconds() / 60} minutes")
+            start_time = datetime.now()
 
         if (batch_idx+1) %  config.save_interval == 0 or (batch_idx+1) == len(train_loader):
             model.eval()  # 切换到推理模式
@@ -222,7 +219,7 @@ def evaluate(model,val_loader,device,config):
     return val_loss
 
 
-def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
+def plot_batch_loss(history, epoch_idx =0, save_path='loss_plot.png'):
     import matplotlib.pyplot as plt
     plt.figure(figsize=(10, 5))
     plt.plot(history, label='Train Loss', color='blue')
@@ -233,6 +230,19 @@ def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
     plt.grid()
     plt.savefig(save_path)
     plt.close()
+
+def plot_train_loss(history, save_path='train_loss_plot.png'):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 5))
+    plt.plot(history, label='Train Loss', color='blue')
+    plt.xlabel('Epoch Index')
+    plt.ylabel('Train Loss')
+    plt.title('Training Loss Over Epochs')
+    plt.legend()
+    plt.grid()
+    plt.savefig(save_path)
+    plt.close()
+
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -347,7 +357,7 @@ def train(config):
             history['train_loss'].append(train_loss)
             logger.info(f"Epoch {epoch}, average train loss: {train_loss}")
             
-            plot_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
+            plot_batch_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
             np.save(os.path.join(config.log_dir, f'{epoch}_training_history.npy'), epoch_loss_list)
 
             if config.evaluate_val:
@@ -383,7 +393,8 @@ def train(config):
             lora_save_path = os.path.join(config.model_save_path, f"{config.model}_lora_epoch_{epoch}.pt")
             save_lora(model, lora_save_path)
             logger.info("-"*100)
-        
+
+        plot_train_loss(history['train_loss'],save_path=f"{config.log_dir}/train_loss.png")
         logger.info("LoRA Fine-tuning completed.")
     except KeyboardInterrupt:
         logger.info("LoRA Fine-tuning interrupted by user.")            
@@ -397,41 +408,46 @@ def train(config):
             writer.close()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Model Pretraining")
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--num_epochs", type=int, default=2)
-    parser.add_argument("--hidden_dim", type=int, default=1024)
+    parser = argparse.ArgumentParser(description="Model LoRA Fine-tuning")
     parser.add_argument("--accumulation_steps", type=int, default=8)
-    parser.add_argument("--loss_mask", type=bool, default=False)
-    parser.add_argument("--attn_mask", type=bool, default=False)
+    parser.add_argument("--loss_mask", action='store_true', default=False)
+    parser.add_argument("--attn_mask", action='store_true', default=False)
     parser.add_argument("--model", type=str, default='llama3')
-    parser.add_argument("--pretrain_path", type=str, default='all_models/llama3_pretrain.pt')
-    parser.add_argument("--use_moe", type=bool, default=False)
+    parser.add_argument("--pretrain_path", type=str, default='all_models/llama1_pretrain.pt')
+    parser.add_argument("--use_moe", action='store_true', default=False)
     parser.add_argument("--lora_rank", type=int, default=8)
-    parser.add_argument("--add_aux_loss", type=bool, default=False)
+    parser.add_argument("--add_aux_loss", action='store_true', default=False)
+    parser.add_argument("--hidden_dim", type=int, default=1024)
+    parser.add_argument("--d_model", type=int, default=512)
+    parser.add_argument("--num_layers", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--num_epochs", type=int, default=10)
+    parser.add_argument("--lr", type=float, default=1e-4)
 
     args = parser.parse_args()
 
     set_seed(42)
-    config = TrainConfig()
+    config = LoraConfig()
     # config.data_path = "data/llm_data/processed/demo_data/sft_mini_512.json"
     config.data_path = "data/llm_data/processed/sft_mini_512.json"
-
+    config.pretrain_path = "all_models/llama3_pretrain.pt"
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
-    config.hidden_dim = args.hidden_dim
     config.accumulation_steps = args.accumulation_steps
     config.loss_mask = args.loss_mask
     config.attn_mask = args.attn_mask
     config.model = args.model
     config.use_moe = args.use_moe
-    config.pretrain_path = args.pretrain_path
     config.lora_rank = args.lora_rank
     config.add_aux_loss = args.add_aux_loss
+    config.d_model = args.d_model
+    config.hidden_dim = args.hidden_dim
+    config.num_layers = args.num_layers
+    config.lr = args.lr
     
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    config.log_dir = os.path.join("logs", f"lora_{now_timestamp}_{config.model}")
+    config.log_dir = os.path.join("lora_logs", f"lora_{now_timestamp}_{config.model}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
 
     # 初始化全局logger

@@ -34,7 +34,7 @@ sys.path.append(project_root)
 print("项目根目录:", project_root)
 print("搜索路径:", sys.path)
 
-from utils.config import TrainConfig
+from utils.config import PretrainConfig
 from utils.data import PretrainDataset  
 from models.llama_model import  Llama1ForCausalLM,Llama3ForCausalLM
 from utils.utils import EarlyStopping
@@ -114,8 +114,8 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
                 output = model(input_ids=x, attention_mask=attention_mask)    
         else:
             output = model(input_ids=x, attention_mask=attention_mask)   
-
         logits = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
+
         running_loss = criterion(logits.view(-1,logits.size(-1)),y.view(-1))
         if config.add_aux_loss and output.loss is not None:
             running_loss += output.loss
@@ -123,7 +123,6 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
 
         # 梯度累积的操作之一
         loss = running_loss / accumulation_steps 
-
         if config.use_amp:
             #  使用scaler.scale()方法来缩放损失值
             #  使用.backward()方法来计算梯度
@@ -141,6 +140,7 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
                 scaler.step(optimizer)
                 # 动态更新缩放因子
                 scaler.update()
+
             else:
                 # 使用clip_grad_norm_()方法来裁剪梯度
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = config.grad_clip)
@@ -163,12 +163,9 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
                 wandb.log({"train_loss": running_loss.item(), "epoch": epoch, "batch_idx": batch_idx})
             if writer:
                 writer.add_scalar('Batch Loss', running_loss.item(), batch_idx)
-            logger.info(f"Epoch [{epoch}/{config.num_epochs}] ({batch_idx+1}/{iter_per_epoch}) Train Loss: {running_loss.item():.5f} LR: {lr:.12f} ")
-            
-            if (batch_idx+1) ==  config.log_interval :
-                end_time = datetime.now()
-                logger.info(f"Epoch [{epoch}/{config.num_epochs}] Batch {100} duration: {(end_time - start_time).total_seconds() / 60} minutes")
-
+            end_time = datetime.now()
+            logger.info(f"Epoch [{epoch}/{config.num_epochs}] ({batch_idx+1}/{iter_per_epoch}) Train Loss: {running_loss.item():.5f} LR: {lr:.12f} Duration: {(end_time - start_time).total_seconds() / 60} minutes")
+            start_time = datetime.now()
 
         if (batch_idx+1) %  config.save_interval == 0 or (batch_idx+1) == len(train_loader):
             model.eval()  # 切换到推理模式
@@ -205,7 +202,7 @@ def evaluate(model,val_loader,device,config):
     return val_loss
 
 
-def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
+def plot_batch_loss(history, epoch_idx =0, save_path='loss_plot.png'):
     import matplotlib.pyplot as plt
     plt.figure(figsize=(10, 5))
     plt.plot(history, label='Train Loss', color='blue')
@@ -216,6 +213,19 @@ def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
     plt.grid()
     plt.savefig(save_path)
     plt.close()
+    
+def plot_train_loss(history, save_path='train_loss_plot.png'):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 5))
+    plt.plot(history, label='Train Loss', color='blue')
+    plt.xlabel('Epoch Index')
+    plt.ylabel('Train Loss')
+    plt.title('Training Loss Over Epochs')
+    plt.legend()
+    plt.grid()
+    plt.savefig(save_path)
+    plt.close()
+
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -307,16 +317,13 @@ def train(config):
     else :
         scaler = None
 
-    logger.info(f"Model parameters:")
-    for name, param in model.named_parameters():
-        logger.info(f"{name}: {param.size()}")
     try:
         for epoch in range(1,1+config.num_epochs):
             train_loss = train_one_epoch(model,train_loader,optimizer,device,epoch,config)
             history['train_loss'].append(train_loss)
             logger.info(f"Epoch {epoch}, average train loss: {train_loss}")
             
-            plot_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
+            plot_batch_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
             np.save(os.path.join(config.log_dir, f'{epoch}_training_history.npy'), epoch_loss_list)
 
             if config.evaluate_val:
@@ -330,6 +337,7 @@ def train(config):
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
+                    model.eval()  # 切换到推理模式
                     checkpoint = {
                         'epoch': epoch,
                         'model_state_dict': model.state_dict(),
@@ -352,7 +360,7 @@ def train(config):
             model_save_path = os.path.join(config.model_save_path, f"{config.model}_model_epoch_{epoch}.pt")
             torch.save(model.state_dict(), model_save_path)
             logger.info("-"*100)
-        
+        plot_train_loss(history['train_loss'],save_path=f"{config.log_dir}/train_loss.png")
         logger.info("Training completed.")
     except KeyboardInterrupt:
         logger.info("Training interrupted by user.")            
@@ -368,37 +376,26 @@ def train(config):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Model Pretraining")
-    parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--num_epochs", type=int, default=2)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--model", type=str, default='llama3')
-    parser.add_argument("--attn_mask", type=bool, default=False)
-    parser.add_argument("--use_moe", type=bool, default=False)
-    parser.add_argument("--add_aux_loss", type=bool, default=False)
+    parser.add_argument("--attn_mask", action='store_true', default=False)
+    parser.add_argument("--use_moe", action='store_true', default=False)
+    parser.add_argument("--add_aux_loss", action='store_true', default=False)
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--hidden_dim", type=int, default=1024)
     parser.add_argument("--num_layers", type=int, default=8)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--num_epochs", type=int, default=1)
     parser.add_argument("--lr", type=float, default=5e-4)
     
 
     args = parser.parse_args()
 
     set_seed(42)
-    config = TrainConfig()
+    config = PretrainConfig()
     # config.data_path = "data/model_data/demo/train.json"
     config.data_path = "data/llm_data/processed/pretrain_hq.json"
-    # config.val_path = "data/model_data/demo/val.json"
-    # config.test_path = "data/model_data/demo/test.json"
 
-    # config.tokenizer_path = "data/"
-    # config.vocab_size = 6400
-    # config.model = 'llama1'
-    # config.d_model = 512
-    # config.num_heads = 1
-    # config.num_layers = 2
-    # config.hidden_dim = 10
-    # config.max_seq_len = 10
-    # config.kv_cache = True  
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
     config.accumulation_steps = args.accumulation_steps

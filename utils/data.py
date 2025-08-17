@@ -130,14 +130,10 @@ class DPODataset(Dataset):
         print(len(self.data),"samples loaded from",self.data_path)
         self.bos_id = self.tokenizer('<|im_start|>assistant',add_special_tokens=False).input_ids
         self.eos_id = self.tokenizer('<|im_end|>',add_special_tokens=False).input_ids
-        print(f"bos_id: {self.bos_id}")
-        print(f"eos_id: {self.eos_id}")
-
 
     def load_data(self):
         with open(self.data_path, 'r', encoding = 'utf-8') as f:
             data = json.load(f)
-        data = data[:3]
         return data
     
     def __len__(self):
@@ -212,12 +208,9 @@ class DPODataset(Dataset):
         chosen_loss_mask = torch.tensor(chosen_loss_mask[1:]).clone().detach()
         rejected_loss_mask = torch.tensor(rejected_loss_mask[1:]).clone().detach()
 
-        print(f"x_chosen: {x_chosen}, dtype: {x_chosen.dtype}")
-        print(f"y_chosen: {y_chosen}, dtype: {y_chosen.dtype}")
-        print(f"x_rejected: {x_rejected}, dtype: {x_rejected.dtype}")
-        print(f"y_rejected: {y_rejected}, dtype: {y_rejected.dtype}")
-        print(f"chosen_loss_mask: {chosen_loss_mask}, dtype: {chosen_loss_mask.dtype}")
-        print(f"rejected_loss_mask: {rejected_loss_mask}, dtype: {rejected_loss_mask.dtype}")
+        chosen_attn_mask = (chosen_ids != self.tokenizer.pad_token_id)[:-1].clone().detach()
+        rejected_attn_mask = (rejected_ids != self.tokenizer.pad_token_id)[:-1].clone().detach()
+
 
         return {
             'x_chosen': x_chosen,
@@ -225,6 +218,8 @@ class DPODataset(Dataset):
             'x_rejected': x_rejected,
             'y_rejected': y_rejected,
             'chosen_loss_mask': chosen_loss_mask,
-            'rejected_loss_mask': rejected_loss_mask
+            'rejected_loss_mask': rejected_loss_mask,
+            'chosen_attn_mask': chosen_attn_mask,
+            'rejected_attn_mask': rejected_attn_mask
         }
     

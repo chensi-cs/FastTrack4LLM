@@ -35,8 +35,8 @@ sys.path.append(project_root)
 print("项目根目录:", project_root)
 print("搜索路径:", sys.path)
 
-from utils.config import TrainConfig
-from utils.data import PretrainDataset  
+from utils.config import DistillConfig
+from utils.data import SFTDataset  
 from models.llama_model import  Llama1ForCausalLM,Llama3ForCausalLM
 from utils.utils import EarlyStopping
 
@@ -81,7 +81,11 @@ def train_one_epoch(train_loader,optimizer,device,epoch,config):
     # 如果不指定reduction参数，交叉熵损失会对所有样本的损失值求平均（reduction='mean'）或求和（reduction='sum'），默认是 reduction: str = "mean"
     # 当设置为reduction='none'时，损失函数会为每个样本单独计算损失值，不进行任何聚合操作（既不求和也不平均）。返回的是一个与输入样本数量相同的损失张量。
     # 设置ignore_index=0，用于忽略标签为0 ，即pad_token位置的损失值，不指定reduction参数，自动计算loss的平均值
-    criterion =  nn.CrossEntropyLoss(ignore_index=0)
+    if config.loss_mask:
+        criterion = nn.CrossEntropyLoss(reduction='none')
+    else:
+        criterion =  nn.CrossEntropyLoss(ignore_index=0)  # 忽略填充的token，填充的token通常是0
+
     train_loss = 0.0
     avg_loss = 0.0
 
@@ -100,12 +104,14 @@ def train_one_epoch(train_loader,optimizer,device,epoch,config):
         teacher_model.requires_grad_(False)
 
     for batch_idx, batch in enumerate(train_loader):
-        x, y, attention_mask = batch
+        x, y, attention_mask, loss_mask = batch
         x = x.to(device)
         y = y.to(device)
         attention_mask = attention_mask.to(device)
-        if config.attn_mask == False:
+        if config.attn_mask== False:
             attention_mask = None
+
+        loss_mask = loss_mask.to(device)
         
         lr = get_lr((epoch-1)* iter_per_epoch + batch_idx, config.num_epochs * iter_per_epoch , config.lr )
         if writer is not None:
@@ -121,6 +127,7 @@ def train_one_epoch(train_loader,optimizer,device,epoch,config):
         else:
             output = model(input_ids=x, attention_mask=attention_mask)   
         logits = output.logits  # 如果使用的是Llama1ForCausalLM，输出是一个字典，包含logits等信息
+
         # logger.info(f"学生模型输出：{output}")
         if teacher_model is not None:
             with torch.no_grad():
@@ -130,15 +137,25 @@ def train_one_epoch(train_loader,optimizer,device,epoch,config):
         
         # 计算蒸馏的损失
         # 硬标签损失，通过交叉熵损失函数计算
+        if config.loss_mask:
+            # logits.view(-1,logits.size(-1)) = [batch_size, seq_len, vocab_size] > [batch_size * seq_len, vocab_size]
+            # y.view(-1) = [batch_size, seq_len] > [batch_size * seq_len]
+            # running_loss  [batch_size * seq_len]
+            loss_hard = criterion(logits.view(-1,logits.size(-1)),y.view(-1)) 
+            # 将损失值的形状调整为 [batch_size, seq_len]
+            loss_hard = loss_hard.view(y.size())  # 将损失值的形状调整为 [batch_size, seq_len]
 
-        loss_hard = criterion(logits.view(-1,logits.size(-1)),y.view(-1))
+            loss_hard = (loss_hard * loss_mask )
+            loss_hard = loss_hard.sum() / loss_mask.sum()  # 计算有效损失的平均值
+            
+        else:
+            loss_hard = criterion(logits.view(-1,logits.size(-1)),y.view(-1))
+
         if config.add_aux_loss and output.loss is not None:
             loss_hard += output.loss
-        epoch_loss_list.append(loss_hard.item())
-
-        # logger.info(f"硬标签损失: {loss_hard.item()}")
 
         loss_soft = torch.tensor(0.0,device=config.device)
+
         # 软标签损失，通过KLDivLoss计算
         if teacher_model is not None:
             with torch.no_grad():
@@ -147,12 +164,12 @@ def train_one_epoch(train_loader,optimizer,device,epoch,config):
             student_logits = F.log_softmax(logits / config.kl_temperature, dim=-1)
             # 计算KL散度,reduction='batchmean'表示对batch中的每个样本进行平均,计算所有元素的 KL 散度之和，再除以元素总数量（即 batch_size × num_classes），得到平均值。
             loss_soft = F.kl_div(student_logits, teather_logits, reduction='batchmean')
-        # logger.info(f"软标签损失: {loss_soft.item()}")
+
 
         # 计算蒸馏损失 = kl_alpha * 硬标签损失 + (1- kl_alpha) * 软标签损失
         running_loss = config.kl_alpha * loss_hard + (1-config.kl_alpha) * loss_soft
-        # logger.info(f"蒸馏总损失: {running_loss.item()}")
 
+        epoch_loss_list.append(running_loss.item())
         # 梯度累积
         loss = running_loss / accumulation_steps
 
@@ -195,12 +212,9 @@ def train_one_epoch(train_loader,optimizer,device,epoch,config):
                 wandb.log({"train_loss": running_loss.item(),  "epoch": epoch, "batch_idx": batch_idx})
             if writer:
                 writer.add_scalar('Batch Loss', running_loss.item(), batch_idx)
-            logger.info(f"Epoch [{epoch}/{config.num_epochs}] ({batch_idx+1}/{iter_per_epoch}) Train Loss: {running_loss.item():.5f} Loss_soft: {loss_soft:.5f} Loss_hard: {loss_hard:.5f} LR: {lr:.12f} ")
-            
-            if (batch_idx+1) ==  config.log_interval :
-                end_time = datetime.now()
-                logger.info(f"Epoch [{epoch}/{config.num_epochs}] Batch {100} duration: {(end_time - start_time).total_seconds() / 60} minutes")
-
+            end_time = datetime.now()
+            logger.info(f"Epoch [{epoch}/{config.num_epochs}] ({batch_idx+1}/{iter_per_epoch}) Train Loss: {running_loss.item():.5f} LR: {lr:.12f} Duration: {(end_time - start_time).total_seconds() / 60} minutes")
+            start_time = datetime.now()
 
         if (batch_idx+1) %  config.save_interval == 0 or (batch_idx+1) == len(train_loader):
             model.eval()  # 切换到推理模式
@@ -229,7 +243,7 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 
-def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
+def plot_batch_loss(history, epoch_idx =0, save_path='loss_plot.png'):
     import matplotlib.pyplot as plt
     plt.figure(figsize=(10, 5))
     plt.plot(history, label='Train Loss', color='blue')
@@ -242,37 +256,18 @@ def plot_loss(history, epoch_idx =0, save_path='loss_plot.png'):
     plt.close()
 
 
-def init_studentconfig(args):
-    config = TrainConfig()
-    config.data_path = "data/model_data/demo/train.json"
-    # config.data_path = "data/llm_data/processed/pretrain_hq.json"
-    config.pretrain_path = 'all_logs/train_20250812_033938_llama3/saved_models/llama3_model.pt'
-    config.batch_size = args.batch_size
-    config.num_epochs = args.num_epochs
-    config.hidden_dim = args.hidden_dim
-    config.accumulation_steps = args.accumulation_steps
-    config.model = args.model
-    config.attn_mask = args.attn_mask
-    config.use_moe = args.use_moe
-    config.add_aux_loss = args.add_aux_loss
-    config.num_layers = args.num_layers
-    config.d_model = args.d_model
-    return config
+def plot_train_loss(history, save_path='train_loss_plot.png'):
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 5))
+    plt.plot(history, label='Train Loss', color='blue')
+    plt.xlabel('Epoch Index')
+    plt.ylabel('Train Loss')
+    plt.title('Training Loss Over Epochs')
+    plt.legend()
+    plt.grid()
+    plt.savefig(save_path)
+    plt.close()
 
-def init_teacherconfig(args):
-    config = TrainConfig()
-    config.pretrain_path = 'all_logs/train_20250813_010827_llama3/saved_models/llama3_model.pt'
-    config.batch_size = args.batch_size
-    config.num_epochs = args.num_epochs
-    config.hidden_dim = 3072
-    config.accumulation_steps = args.accumulation_steps
-    config.model = args.model
-    config.attn_mask = args.attn_mask
-    config.use_moe = args.use_moe
-    config.add_aux_loss = args.add_aux_loss
-    config.num_layers = 16
-    config.d_model = 768
-    return config
 
 def init_student_model(config):
     if config.model == 'llama1':
@@ -281,24 +276,28 @@ def init_student_model(config):
         model = Llama3ForCausalLM(config)
     else:
         raise ValueError(f"Model {config.model} not supported")
-    state_dict = torch.load(config.pretrain_path,map_location=config.device)
+    state_dict = torch.load(config.student_path,map_location=config.device)
     model.load_state_dict(state_dict,strict=True)
-    total_params_count = sum(p.numel() for p in model.parameters())
+    total_params_count = sum(p.numel() for p in model.parameters()) / 1e6
 
     logger.info(f"已成功加载学生模型，学生模型的参数量大小：{total_params_count:.3f} M")
     model.to(config.device)
     return model
 
 def init_teachter_model(config):
+    config.d_model = config.teacher_d_model
+    config.hidden_dim = config.teacher_hidden_dim
+    config.num_layers = config.teacher_num_layers
+
     if config.model == 'llama1':
         model = Llama1ForCausalLM(config)
     elif config.model == 'llama3':
         model = Llama3ForCausalLM(config)
     else:
         raise ValueError(f"Model {config.model} not supported")
-    state_dict = torch.load(config.pretrain_path,map_location = config.device)
+    state_dict = torch.load(config.teacher_path,map_location = config.device)
     model.load_state_dict(state_dict,strict=True)
-    total_params_count = sum(p.numel() for p in model.parameters())
+    total_params_count = sum(p.numel() for p in model.parameters()) / 1e6
     logger.info(f"已成功加载教师模型，教师模型的参数量大小：{total_params_count:.3f} M")
     model.to(config.device)
     return model
@@ -343,7 +342,7 @@ def train(config):
     device = config.device
     logger.info(f"学生模型参数: {config}")
     logger.info("Loading datasets...")
-    train_dataset = PretrainDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
+    train_dataset = SFTDataset( config.data_path,config.tokenizer_path,config.max_seq_len)
     train_loader = DataLoader(
         train_dataset, 
         batch_size=config.batch_size,
@@ -357,11 +356,11 @@ def train(config):
     logger.info(f"Number of training samples: {len(train_dataset)}")
 
     if config.evaluate_val:
-        val_dataset = PretrainDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
+        val_dataset = SFTDataset( config.val_path,config.tokenizer_path,config.max_seq_len)
         val_loader = DataLoader(val_dataset, batch_size=config.batch_size, shuffle=False,num_workers=16)
         logger.info(f"Number of validation samples: {len(val_dataset)}")
     if config.evaluate_test:
-        test_dataset = PretrainDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
+        test_dataset = SFTDataset( config.test_path,config.tokenizer_path,config.max_seq_len)
         test_loader = DataLoader(test_dataset, batch_size=config.batch_size, shuffle=False,num_workers=16)
         logger.info(f"Number of test samples: {len(test_dataset)}")
 
@@ -390,7 +389,7 @@ def train(config):
             train_loss = train_one_epoch(train_loader,optimizer,device,epoch,config)
             history['train_loss'].append(train_loss)
 
-            plot_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
+            plot_batch_loss(epoch_loss_list, epoch_idx=epoch, save_path=f"{config.log_dir}/train_loss_epoch_{epoch}.png")
             logger.info(f"Epoch {epoch}, average train loss: {train_loss}")
             
             
@@ -427,7 +426,8 @@ def train(config):
             model_save_path = os.path.join(config.model_save_path, f"{config.model}_distill_epoch_{epoch}.pt")
             torch.save(model.state_dict(), model_save_path)
             logger.info("-"*100)
-        
+            
+        plot_train_loss(history['train_loss'],save_path=f"{config.log_dir}/train_loss.png")
         logger.info("Distilling completed.")
     except KeyboardInterrupt:
         logger.info("Distilling interrupted by user.")            
@@ -441,43 +441,66 @@ def train(config):
             writer.close()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Model Pretraining")
+    parser = argparse.ArgumentParser(description="Model Distilling")
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--num_epochs", type=int, default=2)
+    parser.add_argument("--loss_mask", action='store_true', default=False)
     parser.add_argument("--accumulation_steps", type=int, default=8)
     parser.add_argument("--model", type=str, default='llama3')
-    parser.add_argument("--attn_mask", type=bool, default=False)
-    parser.add_argument("--use_moe", type=bool, default=False)
-    parser.add_argument("--add_aux_loss", type=bool, default=False)
+    parser.add_argument("--attn_mask", action='store_true', default=False)
+    parser.add_argument("--use_moe", action='store_true', default=False)
+    parser.add_argument("--add_aux_loss", action='store_true', default=False)
     parser.add_argument("--d_model", type=int, default=512)
     parser.add_argument("--hidden_dim", type=int, default=1024)
     parser.add_argument("--num_layers", type=int, default=8)
-    
+    parser.add_argument("--teacher_d_model", type=int, default=768)
+    parser.add_argument("--teacher_hidden_dim", type=int, default=3072)
+    parser.add_argument("--teacher_num_layers", type=int, default=16)
+    parser.add_argument("--lr", type=float, default=5e-4)
+
 
     args = parser.parse_args()
 
     set_seed(42)
 
-    student_config = init_studentconfig(args)
+    config = DistillConfig()
+    # config.data_path = "data/llm_data/processed/demo_data/sft_mini_512.json"
+    config.data_path = "data/llm_data/processed/sft_mini_512.json"
+    
+    config.batch_size = args.batch_size
+    config.num_epochs = args.num_epochs
+    config.accumulation_steps = args.accumulation_steps
+    config.model = args.model
+    config.attn_mask = args.attn_mask
+    config.loss_mask = args.loss_mask
+    config.use_moe = args.use_moe
+    config.add_aux_loss = args.add_aux_loss
+    config.num_layers = args.num_layers
+    config.d_model = args.d_model
+    config.hidden_dim = args.hidden_dim
+    config.teacher_d_model = args.teacher_d_model
+    config.teacher_hidden_dim = args.teacher_hidden_dim
+    config.teacher_num_layers = args.teacher_num_layers
+    config.lr = args.lr
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    student_config.log_dir = os.path.join("logs", f"distill_{now_timestamp}_{student_config.model}")
-    os.makedirs(student_config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
+    config.log_dir = os.path.join("logs", f"distill_{now_timestamp}_{config.model}")
+    os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
     
-    teacher_config = init_teacherconfig(args)
+    
 
     # 初始化全局logger
-    logger = setup_logger(student_config.log_dir)
+    logger = setup_logger(config.log_dir)
 
     start_time = datetime.now()
     logger.info(f"Distilling started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     logging.info("Start distilling")
 
-    model = init_student_model(student_config)
-    teacher_model = init_teachter_model(teacher_config)
+    model = init_student_model(config)
+    teacher_model = init_teachter_model(config)
 
-    train(student_config)
+    train(config)
     end_time = datetime.now()
     logger.info(f"Distilling completed at {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"Total distilling time: {end_time - start_time}")
