@@ -78,6 +78,9 @@ class TrainConfig(PretrainedConfig):
         self.kl_alpha = 0.1
         self.kl_temperature = 1
 
+        # dpo
+        self.dpo_beta = 0.1
+        
         # 测试训练技巧
         # self.test_early_stopping = False
         # self.test_grad_accumulation = False
