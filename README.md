@@ -9,13 +9,10 @@
 - 🏗️ **从零构建大模型结构**：基于Transformer-Decoder架构，支持MoE（混合专家模型）✅
 - 🚀 **预训练 (Pretrain)**：大规模无监督预训练 ✅
 - 🎯 **监督微调 (SFT)**：指令微调和对齐训练 ✅
-- ⚡ **LoRA微调**：参数高效微调技术 ❌
-- 🧠 **直接偏好优化 (DPO)**：基于人类反馈的强化学习 ❌
-- 🔄 **模型蒸馏**：大模型知识迁移到小模型 ❌
+- ⚡ **LoRA微调**：参数高效微调技术 ✅
+- 🧠 **直接偏好优化 (DPO)**：基于人类反馈的强化学习 ✅
+- 🔄 **模型蒸馏**：大模型知识迁移到小模型 ✅
 
-
-
-  
 ## 📁 项目结构
 
 ```
@@ -49,15 +46,25 @@ llm_learning/
 │   ├── llama_model.py         # LLaMA模型
 │   ├── norm_data.py           # 归一化层
 │   ├── position_embed.py      # 位置编码
+│   ├── add_lora.py            # LoRA实现
 ├── trainner/                  # 训练框架
 │   ├── __init__.py
 │   ├── train_pretrain.py      # 预训练脚本
 │   ├── train_sft.py           # SFT微调脚本
+│   ├── train_lora.py          # LoRA微调脚本
+│   ├── train_dpo.py           # DPO训练脚本
+│   ├── train_distillation.py  # 模型蒸馏脚本
 ├── utils/                     # 工具模块
 │   ├── __init__.py
 │   ├── config.py              # 配置管理
 │   ├── data.py                # 数据加载
 │   └── utils.py               # 通用工具
+├── scripts/                   # 训练脚本
+│   ├── lora.sh          # LoRA训练脚本
+│   ├── dpo.sh           # DPO训练脚本
+│   ├── distill.sh       # 蒸馏训练脚本
+│   ├── sft.sh           # SFT训练脚本
+│   └── pretrain.sh            # 预训练脚本
 
 ```
 
@@ -82,26 +89,42 @@ pip install -r requirements.txt
 
 ### 3. 训练流程
 
+本项目支持完整的大模型训练生命周期，按以下顺序执行：
+
 #### 1）预训练 ✅
+**技术特点**：大规模无监督学习，因果语言建模，支持混合精度训练、梯度累积
 ```bash
 # 启动预训练脚本
-bash train.sh
+bash scripts/pretrain.sh
 ```
 
 #### 2）监督微调 (SFT) ✅
+**技术特点**：指令跟随训练，参数全量更新，支持多轮对话数据，早停机制防止过拟合
 ```bash
 # 启动微调脚本
-bash sft.sh
+bash scripts/sft.sh
 ```
-#### 3）LoRA微调 (LoRA) ❌
+
+#### 3）LoRA微调 ✅
+**技术特点**：参数高效微调，仅训练少量LoRA参数，冻结预训练权重，灵活配置超参数
 ```bash
 # 启动LoRA微调脚本
-bash lora.sh
+bash scripts/lora.sh
 ```
 
-#### 4）DPO偏好优化 ❌
+#### 4）DPO偏好优化 ✅
+**技术特点**：直接偏好优化，基于人类反馈的强化学习，使用成对偏好数据训练
+```bash
+# 启动DPO训练脚本
+bash scripts/dpo.sh
+```
 
-#### 5）模型蒸馏 ❌
+#### 5）模型蒸馏 ✅
+**技术特点**：知识迁移，软硬标签结合，温度调节软标签分布，大模型知识迁移到小模型
+```bash
+# 启动模型蒸馏脚本
+bash scripts/distill.sh
+```
 
 ### 4. 模型测试
 
@@ -159,11 +182,11 @@ LLaMA1 (2023) 结构Transformer 解码器架构做出了以下改进：
 ## 🤝 贡献指南
 
 欢迎提交Issue和PR！当前重点开发：
-- [ ] LoRA微调实现
-- [ ] DPO训练脚本
-- [ ] 模型蒸馏实现
 - [ ] 优化tokenizer
 - [ ] Web界面部署
+- [ ] 模型压缩与量化
+- [ ] 多GPU分布式训练
+- [ ] 模型评估指标完善
 
 ## 🙏 致谢
 
