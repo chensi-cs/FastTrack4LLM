@@ -108,8 +108,7 @@ python -c "import torch; print(f'PyTorch版本: {torch.__version__}'); print(f'C
 
 ## 📊 数据集准备
 
-### 数据来源
-本项目不包括数据集的预处理过程，数据来源请参考开源项目  [MiniMind](https://github.com/jingyaogong/minimind) ，本项目使用的数据文件需放入`data/llm_data/processed/`目录下,数据集简介如下：
+本项目不包括数据集的预处理过程，数据来源请参考开源项目 [MiniMind](https://github.com/jingyaogong/minimind) ，本项目使用的数据文件需放入`data/llm_data/processed/`目录下，具体的数据定义可参考`/utils/data.py`
 
 | 数据集 | 大小 | 用途 |
 |--------|------|------|
@@ -138,12 +137,24 @@ python -c "import torch; print(f'PyTorch版本: {torch.__version__}'); print(f'C
 ```json
 {
     "chosen": [
-        {"role": "user", "content": "什么是机器学习？"},
-        {"role": "assistant", "content": "机器学习是AI的一个子领域..."}
+        {
+            "content": "How many moles of HBr are required to react with 2 moles of C2H6 to form 2 moles of C2H5Br along with 2 moles of H2?",
+            "role": "user"
+        },
+        {
+            "content": "To determine the number of moles of HBr required to react···",
+            "role": "assistant"
+        }
     ],
     "rejected": [
-        {"role": "user", "content": "什么是机器学习？"},
-        {"role": "assistant", "content": "机器学习就是电脑学习..."}
+        {
+            "content": "How many moles of HBr are required to react with 2 moles of C2H6 to form 2 moles of C2H5Br along with 2 moles of H2?",
+            "role": "user"
+        },
+        {
+            "content": "To answer this question, we need to write down the chemical ···",
+            "role": "assistant"
+        }
     ]
 }
 ```
@@ -154,6 +165,13 @@ python -c "import torch; print(f'PyTorch版本: {torch.__version__}'); print(f'C
 
 ### 1️⃣ 预训练 (Pretrain) ✅
 **目标**：让模型学会"词语接龙"，建立基础的语言理解能力  
+
+**输入`x`：** 每个样本都是一个tokens序列 `s` , 输入为`s[:-1]`，维度` (batch_size, sequence_length)`
+
+**输出`pred`：** 维度` (batch_size, sequence_length,vocab_size)`，vocab_size 为词汇表大小
+
+**损失计算：** 真实值 `y = s[1:]`（next token预测），用交叉熵损失函数`nn.CrossEntropyLoss`计算真实值 `y` 和预测值 `pred` 的损失
+
 **启动命令**：
 ```bash
 # 启动预训练脚本
@@ -163,6 +181,14 @@ bash scripts/pretrain.sh
 **结果展示**：❌
 ### 2️⃣ 监督微调 (SFT) ✅
 **目标**：让模型学会"如何对话"，理解指令和上下文  
+
+**输入`x`：** 每个样本都是一个tokens序列 `s` , 输入为`s[:-1]`，维度` (batch_size, sequence_length)`
+
+**输出`pred`：** 维度` (batch_size, sequence_length,vocab_size)`，vocab_size 为词汇表大小
+
+**损失计算：** 真实值 `y = s[1:]`（next token预测），用交叉熵损失函数`nn.CrossEntropyLoss`计算真实值 `y` 和预测值 `pred` 的损失
+
+
 **启动命令**：
 ```bash
 # 快速开始
@@ -175,6 +201,14 @@ python trainner/train_sft.py --data_path data/llm_data/processed/sft_mini_512.js
 
 ### 3️⃣ LoRA微调 ✅
 **目标**：数高效微调，仅训练少量LoRA参数，冻结预训练权重，灵活配置超参数
+
+**输入`x`：** 每个样本都是一个tokens序列 `s` , 输入为`s[:-1]`，维度` (batch_size, sequence_length)`
+
+**输出`pred`：** 维度` (batch_size, sequence_length,vocab_size)`，vocab_size 为词汇表大小
+
+**损失计算：** 真实值 `y = s[1:]`（next token预测），用交叉熵损失函数`nn.CrossEntropyLoss`计算真实值 `y` 和预测值 `pred` 的损失
+
+
 **启动命令**：
 ```bash
 # 基础LoRA训练
@@ -186,7 +220,17 @@ python trainner/train_lora.py --data_path data/llm_data/processed/lora_medical.j
 **结果展示**：❌
 
 ### 4️⃣ DPO偏好优化 ✅
+
 **目标**：基于人类反馈优化模型回复质量  
+
+
+**输入`x`：** DPO的一个样本有两个对话句子，一个是 `chosen` 句s1 = `prompt+good answer`,一个是 `reject` 句s2 = `prompt+bad answer`,他们的prompt都是相同的，模型的输入是 `torch.cat(s1[:-1],s2[:-1],dim=0)` , 其中 `s1` 和 `s2` 维度都是` (batch_size, sequence_length)`
+
+**输出`pred`：** 维度` (batch_size, sequence_length,vocab_size)`，vocab_size 为词汇表大小，其中前一半 `batch_size` 是 `chosen` 句的输出，后一半 `batch_size` 是 `reject` 句的输出
+
+**损失计算：** 真实值 `y = torch.cat(s1[1：],s2[1:],dim=0)`，损失的详细计算方式参考`/trainner/train_dpo.py`
+
+
 **启动命令**：
 ```bash
 # 启动DPO训练脚本

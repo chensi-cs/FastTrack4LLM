@@ -28,16 +28,5 @@ class RMSNorm(nn.Module):
         return torch.sqrt(x.pow(2).mean(-1,keepdim=True)+self.eps)
 
     def forward(self,x):
-        #print("x shape:",x.shape)
-        # rms = self._rms(x)
-        #print("rms shape:",rms.shape)
-        #print("gamma shape:",self.gamma.shape)
-
-        #print("x:",x)
-        #print("rms:",rms)
-        #print("gamma:",self.gamma)
-        #res = self.gamma*(x/rms).type_as(x)
-        #print("res shape:",res.shape)
-        #print("res:",res)
         return self.gamma*(x/self._rms(x)).type_as(x)
     

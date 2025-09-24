@@ -330,7 +330,7 @@ def train(config):
         writer = None
 
     if config.use_wandb:
-        wandb.init(project="llm_sft", name=f"sft_{config.model}_{config.num_epochs}_{config.batch_size}_{config.lr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        wandb.init(project="llm_dpo", name=f"dpo_{config.model}_{config.num_epochs}_{config.batch_size}_{config.lr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     else :
         wandb = None
 
@@ -416,7 +416,7 @@ def train(config):
 
             # 保存模型
             model.eval()  # 切换到推理模式
-            model_save_path = os.path.join(config.model_save_path, f"{config.model}_sft_epoch_{epoch}.pt")
+            model_save_path = os.path.join(config.model_save_path, f"{config.model}_dpo_epoch_{epoch}.pt")
             torch.save(model.state_dict(), model_save_path)
             logger.info("-"*100)
         plot_train_loss(history['train_loss'],save_path=f"{config.log_dir}/train_loss.png")
@@ -426,7 +426,7 @@ def train(config):
     finally:
         # 保存模型
         model.eval()  # 切换到推理模式
-        model_save_path = os.path.join(config.model_save_path, f"{config.model}_sft.pt")
+        model_save_path = os.path.join(config.model_save_path, f"{config.model}_dpo.pt")
         torch.save(model.state_dict(), model_save_path)
 
         if writer is not None:
@@ -438,7 +438,7 @@ if __name__ == "__main__":
     parser.add_argument("--loss_mask", action='store_true', default=False)
     parser.add_argument("--attn_mask", action='store_true', default=False)
     parser.add_argument("--model", type=str, default='llama3')
-    parser.add_argument("--pretrain_path", type=str, default='all_models/llama3_pretrain.pt')
+    parser.add_argument("--pretrain_path", type=str, default='all_models/llama1_pretrain.pt')
     parser.add_argument("--use_moe", action='store_true', default=False)
     parser.add_argument("--lora_rank", type=int, default=8)
     parser.add_argument("--add_aux_loss", action='store_true', default=False)
@@ -464,7 +464,7 @@ if __name__ == "__main__":
     config.attn_mask = args.attn_mask
     config.model = args.model
     config.use_moe = args.use_moe
-    config.pretrain_path = args.pretrain_path
+    config.pretrain_path = "all_logs/sft_20250818_020142_llama3/saved_models/llama3_sft.pt"
     config.lora_rank = args.lora_rank
     config.add_aux_loss = args.add_aux_loss
     config.d_model = args.d_model

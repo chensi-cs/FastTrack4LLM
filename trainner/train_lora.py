@@ -429,8 +429,8 @@ if __name__ == "__main__":
     set_seed(42)
     config = LoraConfig()
     # config.data_path = "data/llm_data/processed/demo_data/sft_mini_512.json"
-    config.data_path = "data/llm_data/processed/sft_mini_512.json"
-    config.pretrain_path = "all_models/llama3_pretrain.pt"
+    config.data_path = "data/llm_data/processed/lora_medical.json"
+    config.pretrain_path = "all_logs/sft_20250818_020142_llama3/saved_models/llama3_sft.pt"
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
     config.accumulation_steps = args.accumulation_steps
@@ -447,7 +447,7 @@ if __name__ == "__main__":
     
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    config.log_dir = os.path.join("lora_logs", f"lora_{now_timestamp}_{config.model}")
+    config.log_dir = os.path.join("logs", f"lora_{now_timestamp}_{config.model}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
 
     # 初始化全局logger

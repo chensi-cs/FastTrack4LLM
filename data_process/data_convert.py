@@ -12,6 +12,6 @@ def jsonl_to_json(input_file, output_file):
         json.dump(json_objects, f, indent=4, ensure_ascii=False)
 
 if __name__ == '__main__':
-    input_file = '../data/llm_data/raw/sft_mini_512.jsonl'  
-    output_file = '../data/llm_data/processed/sft_mini_512.json'  
+    input_file = '../data/llm_data/raw/lora_identity.jsonl'  
+    output_file = '../data/llm_data/processed/lora_identity.json'  
     jsonl_to_json(input_file, output_file)

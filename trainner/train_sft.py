@@ -419,8 +419,9 @@ if __name__ == "__main__":
     set_seed(42)
     config = SFTConfig()
     # config.data_path = "data/llm_data/processed/demo_data/sft_mini_512.json"
-    config.data_path = "data/llm_data/processed/sft_mini_512.json"
-    config.pretrain_path = "all_models/llama3_pretrain.pt"
+    # config.data_path = "data/llm_data/processed/sft_mini_512.json"
+    config.data_path = "data/llm_data/processed/sft_512.json"
+    config.pretrain_path = "all_logs/train_20250813_010827_llama3/saved_models/llama3_model.pt"
     config.batch_size = args.batch_size
     config.num_epochs = args.num_epochs
     config.accumulation_steps = args.accumulation_steps

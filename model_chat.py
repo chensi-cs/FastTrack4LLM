@@ -2,25 +2,32 @@
 # -*- coding: utf-8 -*-  # 声明编码为 UTF-8
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextStreamer
-from models.llama_model import Llama1ForCausalLM 
+from models.llama_model import Llama1ForCausalLM , Llama3ForCausalLM
 from utils.config import ChatConfig
+from models.add_lora import apply_lora, save_lora, load_lora
 
 def init_model(config,ischeckpoint=True):
-    model = Llama1ForCausalLM(config)
+    # model = Llama1ForCausalLM(config)
+    model = Llama3ForCausalLM(config)
+
+    
     # strict=True（默认）：严格检查权重文件中的参数名与模型结构中的参数名是否完全匹配。若有不匹配（如缺少参数或多了无关参数），会抛出 RuntimeError。
-    # 正确写法（提取模型权重）
+    
     if ischeckpoint:
         # 加载模型权重文件
         print(f"加载checkpoint模型权重文件: {config.model_path}")
-        checkpoint = torch.load(config.model_path, map_location=config.device)
-        state_dict = checkpoint['model_state_dict']  # 只取模型权重部分
-
-        # 加载到模型
-        model.load_state_dict(state_dict, strict=True)
+        checkpoint = torch.load(config.model_path,map_location = config.device)
+        state_dict = checkpoint['model_state_dict']
+        model.load(state_dict, strcit=True)
     else:
         print(f"加载最终模型权重文件: {config.model_path}")
-        model = load_state_dict(torch.load(config.model_path, map_location=config.device), strict=True)
+        model.load_state_dict(torch.load(config.model_path, map_location=config.device), strict=True)
 
+    if config.model_type == 'lora':
+        apply_lora(model, rank=config.lora_rank, device=config.device)
+        load_lora(model, config.lora_path)  # 加载 LoRA 权重
+
+    print(f"模型: {model}")
 
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_path)
 
@@ -39,15 +46,27 @@ def prompt_template():
         '大模型基本原理介绍',
         '湖南美食有什么',
         '中国有哪些旅游景点',
+        '北京有什么特色美食',
+        '深圳位于中国的哪里',
+        '北京有什么旅游景点'
     ]
     return prompts
 
 
 def main():
     config = ChatConfig()
-    config.model_path = 'checkpoints/checkpoint_epoch_1.pt'  # 模型权重文件路径
-
-    model, tokenizer = init_model(config,ischeckpoint=True)
+    config.model_path = 'all_logs/sft_20250819_172358_llama3/saved_models/llama3_sft.pt'  # 模型权重文件路径
+    # config.pretrain_path = 'saved_models/llama3_model.pt'  # 预训练模型路径
+    config.model_type = 'dpo'
+    if config.model_type == 'lora':
+        config.lora_path = 'all_logs/lora_20250818_212432_llama3/saved_models/llama3_lora.pt'
+    
+    config.flash_att = False
+    config.use_moe = True  # 是否使用MoE模型
+    config.d_model = 768
+    config.num_layers = 16
+    config.hidden_dim = 3072
+    model, tokenizer = init_model(config,ischeckpoint=False)
     model.eval()
     model.to(config.device)
     prompt_templates = prompt_template()
@@ -70,19 +89,22 @@ def main():
             truncation=True,
             return_tensors='pt'
         )
+        # print(f"input_ids: {input_ids}")
         input_ids = input_ids.input_ids
         input_ids = input_ids.to(config.device)  
-        print(f"input_ids: {input_ids}")
+
         # do_sample=True ?
         print('🤖️: ', end='')
+        # outputs = model(input_ids=input_ids)  # 前向传播，获取模型输出
+        # print("模型输出：", outputs)
         output_ids = model.generate(
             input_ids=input_ids,                             # 输入的 Token 序列（模型生成的起点）
             max_new_tokens=config.max_generate_len,  # 最多生成的新 Token 数量
             num_return_sequences=1,                  # 生成的候选序列数量
             do_sample=True,                          # 启用采样策略（而非贪心搜索）
             streamer=streamer,                       # 流式输出器（实时显示生成过程）
-            temperature=config.temperature,          # 温度参数（控制生成随机性）
-            top_p=config.top_p,                      # 核采样参数（控制生成多样性）
+            temperature=0.85,                         # 温度参数（控制生成随机性）
+            top_p=0.85,                               # 核采样参数（控制生成多样性）
             pad_token_id=tokenizer.pad_token_id,     # 填充 Token 的 ID
             eos_token_id=tokenizer.eos_token_id,     # 结束 Token 的 ID
             bos_token_id=tokenizer.bos_token_id     # 开始 Token 的 ID
