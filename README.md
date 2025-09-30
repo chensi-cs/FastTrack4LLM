@@ -1,8 +1,8 @@
-💡注：以下内容中，✅表示已经完成，❌表示有计划但尚未完成
+
 
 <div align="center">
 
-# 🚀 LLM Learning Project
+# 🚀 FastTrack4LLM
 
 **从零开始构建大语言模型的完整学习框架**
 
@@ -15,7 +15,7 @@
 
 ## 🎯 项目愿景
 
-在这个大模型时代，**LLM Learning** 是一个从零开始构建的大语言模型学习框架，致力于让每个人都能真正理解大语言模型的内部机制。不同于仅仅调用API或使用现成模型，我们带你从零开始，亲手构建、训练、优化属于自己的大语言模型。
+在这个大模型时代，**FastTrack4LLM** 是一个从零开始构建的大语言模型学习框架，致力于让每个人都能真正理解大语言模型的内部机制。不同于仅仅调用API或使用现成模型，我们带你从零开始，亲手构建、训练、优化属于自己的大语言模型。
 
 
 
@@ -28,7 +28,6 @@
 - 🧠 **直接偏好优化 (DPO)**：基于人类反馈的强化学习，让模型更符合人类偏好
 - 🔄 **模型蒸馏**：大模型知识迁移到小模型，实现"老师教学生"
 
-致谢🙏：受开源项目 [MiniMind](https://github.com/jingyaogong/minimind) 的启发完成
 
 
 ## 📁 项目结构
@@ -178,7 +177,7 @@ python -c "import torch; print(f'PyTorch版本: {torch.__version__}'); print(f'C
 bash scripts/pretrain.sh
 ```
 
-**结果展示**：❌
+**结果展示**：
 ### 2️⃣ 监督微调 (SFT) ✅
 **目标**：让模型学会"如何对话"，理解指令和上下文  
 
@@ -197,7 +196,7 @@ bash scripts/sft.sh
 # 指定数据路径
 python trainner/train_sft.py --data_path data/llm_data/processed/sft_mini_512.json
 ```
-**结果展示**：❌
+**结果展示**：
 
 ### 3️⃣ LoRA微调 ✅
 **目标**：数高效微调，仅训练少量LoRA参数，冻结预训练权重，灵活配置超参数
@@ -217,7 +216,7 @@ bash scripts/lora.sh
 # 指定LoRA参数
 python trainner/train_lora.py --data_path data/llm_data/processed/lora_medical.json --lora_rank 64 --lora_alpha 128
 ```
-**结果展示**：❌
+**结果展示**：
 
 ### 4️⃣ DPO偏好优化 ✅
 
@@ -236,7 +235,7 @@ python trainner/train_lora.py --data_path data/llm_data/processed/lora_medical.j
 # 启动DPO训练脚本
 bash scripts/dpo.sh
 ```
-**结果展示**：❌
+**结果展示**：
 ### 5️⃣ 模型蒸馏 ✅
 **目标**：大模型知识迁移到小模型
 **启动命令**：
@@ -244,7 +243,7 @@ bash scripts/dpo.sh
 # 启动模型蒸馏脚本
 bash scripts/distill.sh
 ```
-**结果展示**：❌
+**结果展示**：
 
 ## 模型结构
 
@@ -273,9 +272,9 @@ LLaMA1 (2023) 结构Transformer 解码器架构做出了以下改进：
 # 启动对话测试
 python model_chat.py
 ```
-**结果展示**：❌
+**结果展示**：
 
-### 批量评估 ❌
+### 批量评估 
 
 ## 📈 训练策略与监控
 
@@ -303,10 +302,10 @@ python trainner/train_pretrain.py --use_wandb
 
 ### 关键指标监控 
 - **训练损失**: 每步实时更新 ✅
-- **验证困惑度**: 每轮评估 ❌
-- **GPU利用率**: 硬件资源监控 ❌
-- **学习率**: 动态调度曲线 ❌
-- **梯度范数**: 梯度稳定性监控 ❌
+- **验证困惑度**: 每轮评估 
+- **GPU利用率**: 硬件资源监控 
+- **学习率**: 动态调度曲线 
+- **梯度范数**: 梯度稳定性监控 
 
 
 
@@ -353,6 +352,7 @@ python trainner/train_pretrain.py --use_wandb
 - [MiniMind](https://github.com/jingyaogong/minimind) - 项目灵感来源,提供技术参考
 - [LLaMA](https://github.com/facebookresearch/llama) - 模型架构参考
 - [Hugging Face](https://huggingface.co/) - 开源生态支持
+- [MiniMind](https://github.com/jingyaogong/minimind) 
 - **PyTorch团队**: 深度学习框架
 
 ---
