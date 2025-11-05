@@ -7,6 +7,7 @@ from models.attention import  MultiHeadAttention,GroupedQueryAttention
 from models.feed_forward import FeedForward,MoEFeedForward
 from typing import Optional, Tuple, List, Union
 from transformers.modeling_outputs import CausalLMOutputWithPast
+from utils.config import PretrainConfig
 
 class Llama1Block(nn.Module):
     def __init__(self,layer_id,config,freqs_cos,freqs_sin):
@@ -66,6 +67,7 @@ class Llama1Model(nn.Module):
         return output,kv_cache
 
 class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
+    config_class = PretrainConfig
     def __init__(self,config):
         self.config = config
         super().__init__(self.config)
@@ -74,6 +76,7 @@ class Llama1ForCausalLM(PreTrainedModel,GenerationMixin):
         input_ids: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         **kwargs):
+
         logits,kv_cache = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask
@@ -152,6 +155,7 @@ class Llama3Model(nn.Module):
         return output,kv_cache,aux_loss_sum
     
 class Llama3ForCausalLM(PreTrainedModel,GenerationMixin):
+    config_class = PretrainConfig
     def __init__(self,config):
         self.config = config
         super().__init__(self.config)
