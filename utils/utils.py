@@ -2,6 +2,7 @@ import torch
 import logging
 import random
 import numpy as np
+import torch.nn as nn
 
 class EarlyStopping:
     def __init__(self,patience =10,delta=0.01):
@@ -197,3 +198,18 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True #启用 CuDNN 的确定性模式（CuDNN 是 NVIDIA 的深度学习加速库，PyTorch 的很多 GPU 操作（如卷积）会依赖它）
     torch.backends.cudnn.benchmark = False  #禁用 CuDNN 的自动调优功能（该功能会根据硬件和输入数据的特性选择最优的算法来加速计算，但会引入一定的随机性）
     
+def evaluate(model,val_loader,device,config):
+    model.eval()
+    criterion = nn.CrossEntropyLoss(ignore_index=0)
+    val_loss = 0.0
+    for batch in val_loader:
+        x, y, loss_mask = batch  
+        x = x.to(device)
+        y = y.to(device)
+        loss_mask = loss_mask.to(device)
+        with torch.no_grad():
+            output = model(x)
+            loss = criterion(output.view(-1,output.size(-1)),y.view(-1))
+            val_loss += loss.item()
+    val_loss = val_loss / len(val_loader)
+    return val_loss

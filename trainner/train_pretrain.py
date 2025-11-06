@@ -27,7 +27,7 @@ from utils.utils import EarlyStopping, plot_train_loss_mean, plot_train_loss_all
 def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
     model.train()
     
-    criterion =  nn.CrossEntropyLoss(ignore_index=0)
+    criterion =  nn.CrossEntropyLoss(ignore_index=0) # 忽略padding token 0,对所有样本的损失值求平均
     train_loss = 0.0
     avg_loss = 0.0
 
@@ -55,38 +55,30 @@ def train_one_epoch(model,train_loader,optimizer,device,epoch,config):
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
 
-        if config.use_amp:
-            with autocast():
-                output = model(input_ids=x, attention_mask=attention_mask)    
-        else:
-            output = model(input_ids=x, attention_mask=attention_mask)   
+        
+        with autocast():
+            output = model(input_ids=x, attention_mask=attention_mask)    
 
         logits = output.logits  
 
+        # logits.view(-1,logits.size(-1)) : [batch_size, seq_len, vocab_size] > [batch_size * seq_len, vocab_size]
+        # y.view(-1) :[batch_size, seq_len] > [batch_size * seq_len]
+        # running_loss  [batch_size * seq_len]
         running_loss = criterion(logits.view(-1,logits.size(-1)),y.view(-1))
 
         if config.add_aux_loss and output.loss is not None:
             running_loss += output.loss
         train_loss_all.append(running_loss.item())
 
-
         loss = running_loss / accumulation_steps 
-        if config.use_amp:
-            scaler.scale(loss).backward() #缩放损失值，计算梯度
-        else :
-            loss.backward() 
+        scaler.scale(loss).backward() #缩放损失值，计算梯度
         
         # 梯度累积，参数更新
         if (batch_idx+1) % accumulation_steps == 0:
-            if config.use_amp:
-                scaler.unscale_(optimizer) # 反向梯度缩放
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = config.grad_clip) #裁剪梯度
-                scaler.step(optimizer) #更新模型参数
-                scaler.update() # 动态更新缩放因子
-            else:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = config.grad_clip)
-                optimizer.step()
-
+            scaler.unscale_(optimizer) # 反向梯度缩放
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm = config.grad_clip) #裁剪梯度
+            scaler.step(optimizer) #更新模型参数
+            scaler.update() # 动态更新缩放因子
             if writer is not None:
                 # 记录参数分布
                 for name, param in model.named_parameters():
@@ -144,12 +136,12 @@ def train(config):
         writer = None
 
     if config.use_wandb:
-        wandb.init(project="llm_pretrain", name=f"train_{config.model}_{config.num_epochs}_{config.batch_size}_{config.lr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        wandb.init(project="pretrain", name=f"train_{config.model}_{config.num_epochs}_{config.batch_size}_{config.lr}_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     else :
         wandb = None
     
     device = config.device
-    logger.info(f"模型配置: {config}")
+    logger.info(f"参数配置: {config}")
 
     # 2. 加载模型
     if config.model == 'llama1':
@@ -193,10 +185,8 @@ def train(config):
         optimizer = optim.AdamW(model.parameters(),lr=config.lr)
     
     global scaler
-    if config.use_amp:
-        scaler = GradScaler()
-    else :
-        scaler = None
+    scaler = GradScaler()
+
     global train_loss_all
     train_loss_all = []
     history = {"train_loss": [], "val_loss": []}
@@ -256,7 +246,7 @@ def train(config):
     finally:
         model.eval()  
         logger.info(f"最终模型保存中...")
-        model_save_path = os.path.join(config.model_save_path, f"{config.model}_model.pt")
+        model_save_path = os.path.join(config.model_save_path, f"{config.model}_pretrain.pt")
         torch.save(model.state_dict(), model_save_path)
         if writer is not None:
             writer.close()
@@ -276,21 +266,23 @@ if __name__ == "__main__":
     parser.add_argument("--num_epochs", type=int, default=2)
     parser.add_argument("--lr", type=float, default=5e-5)
     args = parser.parse_args()
-
+    defaults = parser.parse_args([])
     config = PretrainConfig()
-    # config.data_path = 'data/model_data/demo/train.json'
+    
     for key, value in vars(args).items():
-        if hasattr(config, key):  
+        if value != getattr(defaults, key) and hasattr(config, key):
             setattr(config, key, value)
+    config.data_path = 'data/model_data/demo/train.json'
 
-    # 初始化全局logger
-    logger = setup_logger(config.log_dir)
 
     # 创建包含当前时间的日志目录
     now_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     config.log_dir = os.path.join("logs", f"pretrain_{now_timestamp}_{config.model}")
     os.makedirs(config.log_dir, exist_ok=True)  # exist_ok=True 避免目录已存在时报错
     
+    # 初始化全局logger
+    logger = setup_logger(config.log_dir)
+
     # 开始训练
     start_time = datetime.now()
     logging.info("开启预训练...")
